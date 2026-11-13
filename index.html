@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Arrowverse Tracker</title>
+  <meta name="description" content="Every Arrowverse episode in watch order. Swipe to mark episodes as watched.">
+  <meta name="theme-color" content="#f7fbf1">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght,ROND@6..144,1..1000,100&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="appbar" id="appbar">
+    <div class="appbar-row" id="appbarRow">
+      <span class="appbar-title" id="smallTitle">Arrowverse</span>
+      <div class="appbar-actions">
+        <button class="icon-btn" id="searchBtn" aria-label="Search"><span class="ms">search</span></button>
+        <button class="icon-btn" id="menuBtn" aria-label="More options" aria-haspopup="menu"><span class="ms">more_vert</span></button>
+      </div>
+    </div>
+    <div class="searchbar" id="searchbar" hidden>
+      <button class="icon-btn" id="searchClose" aria-label="Close search"><span class="ms">arrow_back</span></button>
+      <input id="searchInput" type="search" placeholder="Search episodes" autocomplete="off" enterkeyhint="search">
+      <button class="icon-btn" id="searchClear" aria-label="Clear search" hidden><span class="ms">close</span></button>
+    </div>
+    <div class="chips" id="chips" role="toolbar" aria-label="Filters"></div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <h1 class="display" id="bigTitle">Arrowverse</h1>
+      <p class="hero-sub">Every episode in watch order</p>
+    </section>
+
+    <section class="card progress-card" id="progressCard" role="button" tabindex="0" aria-label="Show progress by series">
+      <div class="progress-head">
+        <div>
+          <div class="progress-num"><span id="pWatched">0</span><span class="progress-of"> / <span id="pTotal">0</span></span></div>
+          <div class="progress-label" id="pLabel">episodes watched</div>
+        </div>
+        <div class="progress-pct" id="pPct">0%</div>
+      </div>
+      <div class="wavy" id="wavy" aria-hidden="true"></div>
+      <div class="progress-foot"><span id="pTime"></span><span class="progress-more">By series <span class="ms sm">chevron_right</span></span></div>
+    </section>
+
+    <section class="card upnext" id="upnext" hidden>
+      <div class="upnext-label"><span class="ms sm fill">play_circle</span> Up next</div>
+      <div class="upnext-body" id="upnextBody"></div>
+      <div class="upnext-actions">
+        <button class="btn tonal" id="upnextDetails">Details</button>
+        <button class="btn filled" id="upnextWatched"><span class="ms sm">check</span> Watched</button>
+      </div>
+    </section>
+
+    <p class="hint" id="hint"><span class="ms sm">swipe</span> Swipe right to mark watched, left to unmark</p>
+
+    <div class="loading" id="loading">
+      <div class="loader" aria-hidden="true"></div>
+      <p id="loadingText">Loading episodes…</p>
+    </div>
+
+    <ol class="list" id="list" aria-label="Episodes"></ol>
+
+    <div class="empty" id="empty" hidden>
+      <span class="ms xl">movie_filter</span>
+      <p id="emptyText">No episodes match</p>
+    </div>
+
+    <footer class="foot">
+      Episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA).
+      Progress is saved on this device.
+    </footer>
+  </main>
+
+  <button class="fab" id="fab" aria-label="Jump to next episode">
+    <span class="ms">skip_next</span><span class="fab-label">Up next</span>
+  </button>
+
+  <div class="snackbar" id="snackbar" role="status" aria-live="polite">
+    <span id="snackText"></span>
+    <button class="snack-action" id="snackAction">Undo</button>
+  </div>
+
+  <div class="menu" id="menu" role="menu" hidden>
+    <button role="menuitem" data-action="stats"><span class="ms">bar_chart</span>Progress by series</button>
+    <button role="menuitem" data-action="theme"><span class="ms">palette</span>Theme</button>
+    <button role="menuitem" data-action="export"><span class="ms">download</span>Back up progress</button>
+    <button role="menuitem" data-action="import"><span class="ms">upload</span>Restore backup</button>
+    <hr>
+    <button role="menuitem" data-action="reset"><span class="ms">restart_alt</span>Reset progress</button>
+  </div>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" hidden>
+    <div class="sheet-handle" id="sheetHandle"><span></span></div>
+    <div class="sheet-content" id="sheetContent"></div>
+  </div>
+
+  <div class="dialog" id="dialog" role="alertdialog" aria-modal="true" hidden>
+    <span class="ms dialog-icon" id="dialogIcon">restart_alt</span>
+    <h2 id="dialogTitle"></h2>
+    <p id="dialogText"></p>
+    <div class="dialog-actions">
+      <button class="btn text" id="dialogCancel">Cancel</button>
+      <button class="btn text" id="dialogOk">OK</button>
+    </div>
+  </div>
+</body>
+</html>
