@@ -2,6 +2,7 @@
 // Generates Material 3 color tokens (light + dark) for each seed and
 // per-show accent colors. Output: js/theme-data.js
 import {
+  argbFromHex, hexFromArgb, Hct, SchemeTonalSpot, TonalPalette,
 } from '@material/material-color-utilities';
 import { writeFileSync } from 'node:fs';
 
