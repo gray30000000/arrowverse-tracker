@@ -127,4 +127,7 @@ if (episodes.length < 600) throw new Error(`Only ${episodes.length} episodes, so
 
 writeFileSync('data.json', JSON.stringify({ built: report.built, orderSource: report.orderSource, episodes }));
 writeFileSync('report.json', JSON.stringify(report, null, 2));
-console.log(JSON.stringify({ ...report, differsFromAirTimeOrder: report.differsFromAirTimeOrder?.length }, null, 2));
+report.withImages = episodes.filter(e => e.img).length;
+report.crossoverEpisodes = episodes.filter(e => e.x).map(e => `${e.x}: ${e.show} S${e.s}E${e.e}`);
+writeFileSync('report.json', JSON.stringify(report, null, 2));
+console.log(JSON.stringify(report, null, 2));
