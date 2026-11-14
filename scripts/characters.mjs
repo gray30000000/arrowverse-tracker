@@ -10,7 +10,7 @@ const ARROW_API = 'https://arrow.fandom.com/api.php';
 const STARGIRL_API = 'https://stargirl.fandom.com/api.php';
 const UA = { 'User-Agent': 'arrowverse-tracker build (github.com/gray30000000/arrowverse-tracker)' };
 const CACHE_FILE = '.cache/fandom.json';
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2; // bump when parseCast output changes
 
 // How the wiki names each series, for "Title (Series)" pages and "<Series> episodes" categories.
 export const WIKI_SERIES = {
@@ -155,6 +155,40 @@ function parseEntry(li) {
   return out;
 }
 
+// Same title stripping the app does, so names can be compared the way they're shown.
+const TITLE_RE = /^(?:(?:assistant|deputy|vice|acting|former|interim|special|co-)\s*)*(?:dr|doctor|mr|mrs|ms|miss|professor|prof|detective|det|officer|captain|capt|lieutenant|lt|sergeant|sgt|agent|major|general|colonel|commander|admiral|mayor|senator|councilman|councilwoman|governor|president|director|chief|sheriff|district attorney|attorney general|judge|commissioner|warden|coach|principal|nurse|private|corporal)\.?\s+/i;
+const cleanName = name => {
+  let x = name;
+  for (;;) { const y = x.replace(TITLE_RE, ''); if (y === x || !y.trim()) return x; x = y; }
+};
+const plain = n => cleanName(n).replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+// Links can point at redirects ("Barry Allen" -> "Barry Allen (Earth-1)"); resolve them so
+// one character isn't split in two. Redirects into a section of a list page keep the
+// section, so minor characters on "List of …" pages stay separate.
+async function resolveRedirects(titles, api, known) {
+  const todo = [...new Set(titles)].filter(t => !(t in known));
+  for (let i = 0; i < todo.length; i += 50) {
+    const batch = todo.slice(i, i + 50);
+    const params = new URLSearchParams({ action: 'query', titles: batch.join('|'), redirects: '1', format: 'json', formatversion: '2' });
+    let json = null;
+    for (let attempt = 0; attempt < 5 && !json; attempt++) {
+      const res = await fetch(`${api}?${params}`, { headers: UA });
+      if (res.ok) json = await res.json();
+      else await sleep(2000 * 2 ** attempt);
+    }
+    if (!json) continue;
+    const norm = Object.fromEntries((json.query?.normalized || []).map(n => [n.from, n.to]));
+    const redir = Object.fromEntries((json.query?.redirects || []).map(r => [r.from, r.tofragment ? `${r.to}#${r.tofragment}` : r.to]));
+    for (const t of batch) {
+      const n = norm[t] || t;
+      known[t] = redir[n] || n;
+    }
+    await sleep(400);
+  }
+  return known;
+}
+
 const normTitle = t => decode(String(t || '')).toLowerCase()
   .replace(/&/g, ' and ').replace(/\bpart\b/g, ' ')
   .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/g, w => ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 })[w])
@@ -263,6 +297,25 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
   mkdirSync('.cache', { recursive: true });
   writeFileSync(CACHE_FILE, JSON.stringify(cache));
 
+  // Resolve redirects for every linked character page (cached).
+  cache.redirects ||= { arrow: {}, stargirl: {} };
+  const linkedIds = { arrow: [], stargirl: [] };
+  for (const ep of episodes) {
+    const entry = cache.pages[ep.id];
+    if (!entry || entry.miss) continue;
+    for (const c of entry.cast) if (c.l) linkedIds[ep.show === 'stargirl' ? 'stargirl' : 'arrow'].push(c.id);
+  }
+  try {
+    await resolveRedirects(linkedIds.arrow, ARROW_API, cache.redirects.arrow);
+    await resolveRedirects(linkedIds.stargirl, STARGIRL_API, cache.redirects.stargirl);
+  } catch (err) { errors.push(`redirects: ${err.message}`); }
+  writeFileSync(CACHE_FILE, JSON.stringify(cache));
+  const canon = (ep, c) => {
+    if (!c.l) return c.id;
+    const map = cache.redirects[ep.show === 'stargirl' ? 'stargirl' : 'arrow'];
+    return map[c.id] || c.id;
+  };
+
   // Count appearances first, to keep only characters worth listing.
   const ns = ep => (ep.show === 'stargirl' ? 'sg:' : ''); // the two wikis' pages are separate
   const tally = new Map();
@@ -271,7 +324,7 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
     if (!entry || entry.miss) continue;
     const seen = new Set();
     for (const c of entry.cast) {
-      const id = ns(ep) + c.id;
+      const id = ns(ep) + canon(ep, c);
       if (seen.has(id) || c.g === 'c' || c.g === 'u') continue;
       seen.add(id);
       const t = tally.get(id) || { main: 0, all: 0, linked: false };
@@ -296,10 +349,10 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
     const seen = new Set();
     eps[ep.id] = [];
     for (const c of entry.cast) {
-      const id = ns(ep) + c.id;
+      const id = ns(ep) + canon(ep, c);
       if (seen.has(id) || c.g === 'c' || c.g === 'u' || !relevant(id)) continue;
       seen.add(id);
-      if (!chars.has(id)) chars.set(id, { idx: chars.size, names: [], actors: [] });
+      if (!chars.has(id)) chars.set(id, { idx: chars.size, names: [], actors: [], id: id.replace(/^sg:/, '') });
       const ch = chars.get(id);
       let ni = ch.names.indexOf(c.name); if (ni < 0) ni = ch.names.push(c.name) - 1;
       let ai = ch.actors.indexOf(c.actor); if (ai < 0) ai = ch.actors.push(c.actor) - 1;
@@ -308,7 +361,15 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
     }
   }
   // n: credited names, a: actors (both in order of first appearance).
-  const list = [...chars.values()].map(ch => ({ n: ch.names, a: ch.actors }));
+  // q: a label like "Earth-2" for telling versions of a character apart. It's taken
+  // from the wiki page title only when the rest of that title is a name the character
+  // is credited with, so it can't give away who someone really is.
+  const list = [...chars.values()].map(ch => {
+    const out = { n: ch.names, a: ch.actors };
+    const m = /^(.*?)\s*\(([^)]+)\)$/.exec(ch.id.split('#')[0]);
+    if (m && ch.names.some(n => plain(n.replace(/\s*\([^)]*\)$/, '')) === plain(m[1]))) out.q = m[2];
+    return out;
+  });
 
   return {
     data: { built: new Date().toISOString(), source: 'arrow.fandom.com', chars: list, eps },
@@ -318,6 +379,8 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
       fetchedThisBuild: fetched,
       exactTitlesFromLists: listStats,
       castMembersSeen: tally.size,
+      redirectsResolved: Object.values(cache.redirects).reduce((n, m) => n + Object.entries(m).filter(([a, b]) => a !== b).length, 0),
+      withVersionLabel: list.filter(c => c.q).length,
       fetchErrors: errors.slice(0, 50),
       characters: list.length,
     },

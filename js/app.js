@@ -755,6 +755,14 @@ function metCharacters() {
     m.name = cleanName(charName(m.c, best));
     m.actor = [...m.actors].map(i => cast.chars[m.c].a[i]).join(' / ');
   }
+  // Different versions of a character can share a name (Earth-1 and Earth-2 Barry Allen).
+  // When two you've met would look the same, add the version label from the wiki.
+  const seenNames = new Map();
+  for (const m of met.values()) seenNames.set(m.name.toLowerCase(), (seenNames.get(m.name.toLowerCase()) || 0) + 1);
+  for (const m of met.values()) {
+    const q = cast.chars[m.c].q;
+    if (q && seenNames.get(m.name.toLowerCase()) > 1 && !/\)$/.test(m.name)) m.name += ` (${q})`;
+  }
   return met;
 }
 

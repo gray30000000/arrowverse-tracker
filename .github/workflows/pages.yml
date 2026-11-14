@@ -28,8 +28,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: fandom-${{ hashFiles('scripts/characters.mjs') }}-${{ github.run_id }}
-          restore-keys: fandom-${{ hashFiles('scripts/characters.mjs') }}-
+          key: fandom-v2-${{ github.run_id }}
+          restore-keys: fandom-v2-
       - name: Build data (order from arrowverse.info, details from TVmaze, cast from the Arrowverse wiki)
         run: node scripts/build-data.mjs
         timeout-minutes: 20
