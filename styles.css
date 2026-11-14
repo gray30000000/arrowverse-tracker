@@ -351,9 +351,23 @@ body.view-ratings [data-chip="unwatched"], body.view-ratings .chip-sep { display
   display: grid; place-items: center; background: var(--surface-container-low); color: var(--c);
   font-size: 13px; font-variation-settings: "FILL" 1, "wght" 600;
 }
+/* Portrait over the initials; the badge comes after it, so it stays on top. */
+.ch-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border-radius: inherit; object-fit: cover; object-position: 50% 20%; background: var(--cc);
+}
+.ch-row .initials { width: 56px; height: 56px; font-size: 17px; }
 .initials.big { width: 88px; height: 88px; font-size: 30px; }
+.ch-head .initials.big { width: 112px; height: 112px; font-size: 36px; }
 .initials.big .badge { width: 32px; height: 32px; font-size: 20px; right: -2px; bottom: -2px; background: var(--surface-container-low); }
 .new-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin-left: 8px; border-radius: 10px; background: var(--primary); color: var(--on-primary); font-size: 11px; font-weight: 700; letter-spacing: .4px; vertical-align: 2px; }
+/* Wider screens: a grid of cards, photo beside name and details. */
+@media (min-width: 600px) {
+  .char-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+  .char-list .ch, .char-list .ch:first-child, .char-list .ch:last-child { margin: 0; border-radius: 20px; contain-intrinsic-size: auto 96px; }
+  .ch-row { height: 100%; padding: 16px; }
+  .ch-row .initials { width: 64px; height: 64px; font-size: 20px; }
+}
 .char-stats { display: flex; align-items: baseline; gap: 6px; margin: 0 24px 12px; color: var(--on-surface-variant); font-size: 14px; }
 .char-stats b { font-size: 22px; color: var(--on-surface); font-weight: 600; font-variant-numeric: tabular-nums; }
 

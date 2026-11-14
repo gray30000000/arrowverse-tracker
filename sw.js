@@ -1,5 +1,6 @@
-// Offline support: app shell cached, data.json network-first, fonts and images cache-first.
-const VERSION = 'v9';
+// Offline support: app shell cached, data.json network-first, fonts and images cache-first
+// (episode stills from TVmaze, character portraits from the wiki's CDN).
+const VERSION = 'v10';
 const SHELL = ['./', 'index.html', 'styles.css', 'js/app.js', 'js/data.js', 'js/theme-data.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
@@ -37,7 +38,8 @@ self.addEventListener('fetch', e => {
     e.respondWith(networkFirst(e.request, `shell-${VERSION}`));
   } else if (/fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) {
     e.respondWith(cacheFirst(e.request, 'fonts'));
-  } else if (url.hostname.endsWith('tvmaze.com') && url.pathname.match(/\.(jpe?g|png|webp)$/)) {
+  } else if ((url.hostname.endsWith('tvmaze.com') && url.pathname.match(/\.(jpe?g|png|webp)$/)) ||
+             url.hostname === 'static.wikia.nocookie.net') {
     e.respondWith(cacheFirst(e.request, 'images'));
   }
 });

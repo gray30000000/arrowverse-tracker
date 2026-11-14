@@ -163,6 +163,99 @@ const cleanName = name => {
 };
 const plain = n => cleanName(n).replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+// Character portraits: the picture the wiki shows for a character's page, as a URL on
+// the wiki's image CDN (static.wikia.nocookie.net). A character only gets one when the
+// page title is the name they're first credited with, so a credit that links to someone
+// else's page (a secret identity) gets no picture, and its URL can't name them either.
+// Wiki portraits often show a later look, so they can still give something away.
+const IMAGE_SIZE = 320; // square, from the CDN's "smart" crop, which centers on the subject
+const IMAGE_MAX_AGE = 30 * 864e5; // look portraits up again after this long
+const IMAGE_BUDGET = 5 * 60e3; // per build, for the slower infobox lookups; the rest wait for the next build
+const noParens = s => String(s || '').replace(/\s*\([^)]*\)/g, '');
+
+// Only the wiki CDN is accepted, as an IMAGE_SIZE square.
+export function portraitUrl(url) {
+  const m = /^(?:https?:)?(\/\/static\.wikia\.nocookie\.net\/[^?#"]*?\/revision\/latest)(?:\/[^?#"]*)?(\?[^#"]*)?$/.exec(decode(url || ''));
+  return m ? `https:${m[1]}/smart/width/${IMAGE_SIZE}/height/${IMAGE_SIZE}${m[2] || ''}` : null;
+}
+
+async function apiGet(api, params) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await fetch(`${api}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`, { headers: UA });
+    if (res.ok) return res.json();
+    if (res.status !== 429 && res.status < 500) throw new Error(`HTTP ${res.status}`);
+    await sleep(2000 * 2 ** attempt);
+  }
+  throw new Error('gave up after retries');
+}
+
+// The page image MediaWiki picks for each title, 50 at a time.
+async function pageImages(titles, api) {
+  const out = {};
+  for (let i = 0; i < titles.length; i += 50) {
+    const batch = titles.slice(i, i + 50);
+    const json = await apiGet(api, {
+      action: 'query', titles: batch.join('|'), redirects: '1',
+      prop: 'pageimages', piprop: 'thumbnail', pithumbsize: String(IMAGE_SIZE), pilicense: 'any', pilimit: '50',
+    });
+    const norm = Object.fromEntries((json.query?.normalized || []).map(n => [n.from, n.to]));
+    const redir = Object.fromEntries((json.query?.redirects || []).map(r => [r.from, r.to]));
+    const pages = Object.fromEntries((json.query?.pages || []).map(p => [p.title, p]));
+    for (const t of batch) {
+      const n = norm[t] || t;
+      out[t] = portraitUrl(pages[redir[n] || n]?.thumbnail?.source);
+    }
+    await sleep(400);
+  }
+  return out;
+}
+
+// Fallback: the first image in the page's infobox.
+async function infoboxImage(title, api) {
+  const json = await apiGet(api, { action: 'parse', page: title, prop: 'text', section: '0', redirects: '1', disablelimitreport: '1', disableeditsection: '1' });
+  const html = json.parse?.text || '';
+  const at = html.indexOf('portable-infobox');
+  if (at < 0) return null;
+  const re = /(?:href|src|data-src)="((?:https?:)?\/\/static\.wikia\.nocookie\.net\/[^"]+)"/g;
+  re.lastIndex = at;
+  for (let m; (m = re.exec(html));) { const url = portraitUrl(m[1]); if (url) return url; }
+  return null;
+}
+
+// chars: internal character records (id = wiki page title, wiki, names); list: the output, same order.
+export async function addPortraits(chars, list, cache, errors) {
+  cache.images ||= { arrow: {}, stargirl: {} };
+  const t0 = Date.now();
+  const eligible = [];
+  chars.forEach((ch, i) => {
+    list[i].imageUrl = null;
+    if (ch.id.includes('#')) return; // a section of a "List of …" page, not their own page
+    if (plain(noParens(ch.names[0])) !== plain(noParens(ch.id))) return; // first credited under another name
+    eligible.push({ i, title: ch.id, wiki: ch.wiki });
+  });
+  const fresh = e => Date.now() - (cache.images[e.wiki][e.title]?.at || 0) < IMAGE_MAX_AGE;
+  for (const wiki of ['arrow', 'stargirl']) {
+    const api = wiki === 'stargirl' ? STARGIRL_API : ARROW_API;
+    const todo = [...new Set(eligible.filter(e => e.wiki === wiki && !fresh(e)).map(e => e.title))];
+    let found = {};
+    try { found = await pageImages(todo, api); } catch (err) { errors.push(`page images (${wiki}): ${err.message}`); }
+    for (const title of todo) {
+      if (found[title]) { cache.images[wiki][title] = { u: found[title], at: Date.now() }; continue; }
+      if (Date.now() - t0 > IMAGE_BUDGET) continue;
+      try { cache.images[wiki][title] = { u: await infoboxImage(title, api), at: Date.now() }; }
+      catch (err) { errors.push(`portrait "${title}": ${err.message}`); }
+      await sleep(350);
+    }
+  }
+  for (const e of eligible) list[e.i].imageUrl = portraitUrl(cache.images[e.wiki][e.title]?.u); // re-sized, so cached URLs follow changes
+  return {
+    withPortrait: list.filter(c => c.imageUrl).length,
+    lookedUp: eligible.length,
+    skippedOtherName: chars.length - eligible.length,
+    pending: eligible.filter(e => !cache.images[e.wiki][e.title]).length,
+  };
+}
+
 // Links can point at redirects ("Barry Allen" -> "Barry Allen (Earth-1)"); resolve them so
 // one character isn't split in two. Redirects into a section of a list page keep the
 // section, so minor characters on "List of …" pages stay separate.
@@ -352,7 +445,7 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
       const id = ns(ep) + canon(ep, c);
       if (seen.has(id) || c.g === 'c' || c.g === 'u' || !relevant(id)) continue;
       seen.add(id);
-      if (!chars.has(id)) chars.set(id, { idx: chars.size, names: [], actors: [], id: id.replace(/^sg:/, '') });
+      if (!chars.has(id)) chars.set(id, { idx: chars.size, names: [], actors: [], id: id.replace(/^sg:/, ''), wiki: ns(ep) ? 'stargirl' : 'arrow' });
       const ch = chars.get(id);
       let ni = ch.names.indexOf(c.name); if (ni < 0) ni = ch.names.push(c.name) - 1;
       let ai = ch.actors.indexOf(c.actor); if (ai < 0) ai = ch.actors.push(c.actor) - 1;
@@ -372,6 +465,10 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
     if (m && isWorld && ch.names.some(n => plain(n.replace(/\s*\([^)]*\)$/, '')) === plain(m[1]))) out.q = m[2];
     return out;
   });
+  let images;
+  try { images = await addPortraits([...chars.values()], list, cache, errors); }
+  catch (err) { errors.push(`portraits: ${err.message}`); for (const c of list) c.imageUrl ??= null; }
+  writeFileSync(CACHE_FILE, JSON.stringify(cache));
 
   return {
     data: { built: new Date().toISOString(), source: 'arrow.fandom.com', chars: list, eps },
@@ -383,6 +480,7 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
       castMembersSeen: tally.size,
       redirectsResolved: Object.values(cache.redirects).reduce((n, m) => n + Object.entries(m).filter(([a, b]) => a !== b).length, 0),
       withVersionLabel: list.filter(c => c.q).length,
+      images,
       fetchErrors: errors.slice(0, 50),
       characters: list.length,
     },
