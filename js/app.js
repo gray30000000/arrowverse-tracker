@@ -711,14 +711,14 @@ const initialsOf = name => name
   .replace(/\(.*?\)/g, '').replace(/^(dr|mr|mrs|ms|miss)\.?\s+/i, '').trim()
   .split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2)
   .map(w => w[0].toUpperCase()).join('') || '?';
-// Portrait from imageUrl in characters.json, laid over the initials. Until a file is
-// added to images/characters/, the image fails, removes itself and isn't asked for again
-// this session, so the initials show instead.
+// Portrait from imageUrl in characters.json (a wiki image URL, or null), laid over the
+// initials. If it fails to load, it removes itself and isn't asked for again this
+// session, so the initials show instead.
 const missingImages = new Set();
 const avatarHtml = (c, name, { show = null, big = false } = {}) => {
   const url = cast.chars[c].imageUrl;
   const img = url && !missingImages.has(url)
-    ? `<img class="ch-img" src="${esc(url)}" alt="" loading="lazy" decoding="async">` : '';
+    ? `<img class="ch-img" src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
   const badge = show ? `<span class="ms badge">${SHOW[show].icon}</span>` : '';
   return `<span class="initials${big ? ' big' : ''}">${esc(initialsOf(name))}${img}${badge}</span>`;
 };
