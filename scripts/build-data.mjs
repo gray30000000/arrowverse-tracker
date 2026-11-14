@@ -8,6 +8,7 @@
 import { writeFileSync } from 'node:fs';
 import { SHOWS, buildEpisodes } from '../js/data.js';
 import { buildCharacters } from './characters.mjs';
+import { imdbRatings } from './imdb.mjs';
 
 const AV_SERIES = {
   'Arrow': 'arrow', 'The Flash': 'flash', 'Constantine': 'constantine', 'Vixen': 'vixen',
@@ -42,7 +43,12 @@ async function getJson(url) {
 
 // 1. TVmaze, in air-time order.
 const byShow = {};
-for (const show of SHOWS) byShow[show.key] = await getJson(`https://api.tvmaze.com/shows/${show.tvmaze}/episodes`);
+const showImdb = new Map(); // show key -> IMDb series id (TVmaze lists it)
+for (const show of SHOWS) {
+  byShow[show.key] = await getJson(`https://api.tvmaze.com/shows/${show.tvmaze}/episodes`);
+  const info = await getJson(`https://api.tvmaze.com/shows/${show.tvmaze}`);
+  if (info.externals?.imdb) showImdb.set(show.key, info.externals.imdb);
+}
 const tvmaze = buildEpisodes(byShow);
 const tvOrder = new Map(tvmaze.map((ep, i) => [ep.id, i]));
 
@@ -128,7 +134,27 @@ report.finalCount = episodes.length;
 report.perShow = Object.fromEntries(SHOWS.map(s => [s.short, episodes.filter(e => e.show === s.key).length]));
 if (episodes.length < 600) throw new Error(`Only ${episodes.length} episodes, something is off`);
 
-writeFileSync('data.json', JSON.stringify({ built: report.built, orderSource: report.orderSource, episodes }));
+// IMDb ratings replace TVmaze's. If IMDb can't be reached, TVmaze's stay.
+let ratingSource = 'tvmaze';
+try {
+  const t0 = Date.now();
+  const { ratings, report: imdbReport } = await imdbRatings(episodes, showImdb, wikiTitles);
+  if (imdbReport.withRating > 500) {
+    for (const ep of episodes) {
+      const x = ratings.get(ep.id);
+      ep.r = x?.r ?? null;
+      ep.v = x?.v ?? null;
+      ep.im = x?.im ?? null;
+    }
+    ratingSource = 'imdb';
+  }
+  report.imdb = { ...imdbReport, seconds: Math.round((Date.now() - t0) / 1000) };
+} catch (err) {
+  console.warn('IMDb step failed, keeping TVmaze ratings:', err);
+  report.imdb = { error: String(err) };
+}
+
+writeFileSync('data.json', JSON.stringify({ built: report.built, orderSource: report.orderSource, ratingSource, episodes }));
 
 // Characters per episode (optional: the site still works without them).
 try {

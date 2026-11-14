@@ -16,6 +16,8 @@ const state = {
   watched: new Set(store.get(KEYS.watched, [])),
   settings: { seed: 'emerald', mode: 'system', hidden: [], hideWatched: false, ...store.get(KEYS.settings, {}) },
   query: '',
+  ratingSource: 'tvmaze',
+  heat: null,
 };
 const $ = id => document.getElementById(id);
 const saveWatched = () => store.set(KEYS.watched, [...state.watched]);
@@ -24,6 +26,7 @@ const isShown = ep => !state.settings.hidden.includes(ep.show);
 const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const showVars = key => `--c:var(--s-${key});--cc:var(--s-${key}-cc);--occ:var(--s-${key}-occ)`;
+const fmtVotes = v => v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k votes` : `${v} votes`;
 const buzz = ms => { try { navigator.vibrate?.(ms); } catch { /* not supported */ } };
 
 /* ---------- Theme ---------- */
@@ -42,6 +45,8 @@ function applyTheme() {
     root.style.setProperty(`--s-${show}-occ`, c[m].occ);
   }
   root.dataset.mode = m;
+  state.heat = theme[m].heat;
+  if (typeof currentView !== 'undefined' && currentView === 'ratings') renderRatings();
   document.querySelector('meta[name=theme-color]').content =
     $('appbar').classList.contains('scrolled') ? theme[m]['surface-container'] : theme[m].surface;
 }
@@ -53,7 +58,7 @@ async function loadEpisodes() {
     const res = await fetch('data.json', { cache: 'no-cache' });
     if (res.ok) {
       const json = await res.json();
-      if (json.episodes?.length) return json.episodes;
+      if (json.episodes?.length) { state.ratingSource = json.ratingSource || 'tvmaze'; return json.episodes; }
     }
   } catch { /* fall through to TVmaze */ }
   const cached = store.get(KEYS.cache, null);
@@ -233,6 +238,7 @@ function setWatched(ids, value, { announce = true, message } = {}) {
   }
   updateSummary();
   if (currentView === 'characters') renderCharacters();
+  if (currentView === 'ratings') renderRatings();
   if (state.settings.hideWatched && value && changed.length < 4) {
     for (const id of changed) state.rows.get(id)?.classList.add('collapsing');
     setTimeout(applyFilters, 320);
@@ -451,7 +457,9 @@ function openDetails(id) {
       <span class="d-pill"><span class="ms">tag</span>S${ep.s} · E${ep.e}</span>
       <span class="d-pill"><span class="ms">calendar_today</span>${fmtDate(ep.d)}</span>
       ${ep.rt ? `<span class="d-pill"><span class="ms">schedule</span>${ep.rt} min</span>` : ''}
-      ${ep.r ? `<span class="d-pill"><span class="ms fill">star</span>${ep.r}</span>` : ''}
+      ${ep.r ? (ep.im
+        ? `<a class="d-pill" href="https://www.imdb.com/title/${esc(ep.im)}/" target="_blank" rel="noopener"><span class="ms fill">star</span>${ep.r} IMDb${ep.v ? ` · ${fmtVotes(ep.v)}` : ''}</a>`
+        : `<span class="d-pill"><span class="ms fill">star</span>${ep.r}</span>`) : ''}
       <span class="d-pill"><span class="ms">format_list_numbered</span>#${ep.n} in order</span>
       ${ep.x ? `<span class="d-pill x"><span class="ms">join</span>${esc(ep.x)} crossover</span>` : ''}
     </div>
@@ -616,6 +624,7 @@ $('chips').addEventListener('click', e => {
   $('chips').scrollLeft = left;
   applyFilters();
   updateSummary();
+  if (currentView === 'ratings') renderRatings();
 });
 
 /* ---------- Search ---------- */
@@ -910,32 +919,98 @@ function castHtml(ep, { reveal = false, all = false } = {}) {
   return `<div class="cast" id="castBox" data-ep="${ep.id}" data-reveal="1">${head}${html}</div>`;
 }
 
+/* ---------- Ratings grid ---------- */
+// Eight steps of half a point: under 6, 6–6.4, …, 8.5–8.9, 9 and up.
+const BINS = [6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0];
+const binOf = r => BINS.filter(b => r >= b).length;
+const heatVars = r => { const [bg, fg] = state.heat[binOf(r)]; return `--bg:${bg};--fg:${fg}`; };
+const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+function renderRatings() {
+  if (!state.heat || !state.episodes.length) return;
+  const source = state.ratingSource === 'imdb' ? 'IMDb' : 'TVmaze';
+  $('heroSub').textContent = `${source} ratings by season`;
+  const labels = ['<6', '6', '6.5', '7', '7.5', '8', '8.5', '9+'];
+  $('heatLegend').innerHTML = `<span>Low</span><span class="scale">${labels.map((l, i) =>
+    `<i style="background:${state.heat[i][0]};color:${state.heat[i][1]}">${l}</i>`).join('')}</span><span>High</span>
+    <span class="watched-key"><b></b>watched</span>`;
+
+  const shows = SHOWS.filter(s => !state.settings.hidden.includes(s.key));
+  $('ratingsEmpty').hidden = shows.length > 0;
+  $('ratingGrids').innerHTML = shows.map(show => {
+    const eps = state.episodes.filter(e => e.show === show.key);
+    if (!eps.length) return '';
+    const seasons = [...new Set(eps.map(e => e.s))].sort((a, b) => a - b);
+    const maxE = Math.max(...eps.map(e => e.e));
+    const at = {};
+    for (const e of eps) (at[e.s] ||= {})[e.e] = e;
+    const rated = eps.filter(e => e.r);
+    const best = rated.reduce((a, b) => (b.r > (a?.r ?? -1) ? b : a), null);
+    const worst = rated.reduce((a, b) => (b.r < (a?.r ?? 99) ? b : a), null);
+    const cell = e => {
+      if (!e) return '<span></span>';
+      const label = `${show.short} S${e.s} E${e.e}, ${e.t}${e.r ? `, rated ${e.r}` : ', no rating'}${state.watched.has(e.id) ? ', watched' : ''}`;
+      const w = state.watched.has(e.id) ? ' watched' : '';
+      return e.r
+        ? `<button class="cell${w}" data-ep="${e.id}" style="${heatVars(e.r)}" title="${esc(label)}" aria-label="${esc(label)}">${e.r.toFixed(1)}</button>`
+        : `<button class="cell none${w}" data-ep="${e.id}" title="${esc(label)}" aria-label="${esc(label)}">–</button>`;
+    };
+    let grid = `<span></span>${seasons.map(n => `<span class="hd">S${n}</span>`).join('')}`;
+    for (let n = 1; n <= maxE; n++) grid += `<span class="rl">${n}</span>${seasons.map(sn => cell(at[sn]?.[n])).join('')}`;
+    grid += `<span class="gap"></span>${seasons.map(() => '<span class="gap"></span>').join('')}`;
+    grid += `<span class="avg-label" title="Season average">avg</span>${seasons.map(sn => {
+      const rs = Object.values(at[sn]).filter(e => e.r).map(e => e.r);
+      if (!rs.length) return '<span></span>';
+      const a = mean(rs);
+      return `<span class="cell avg" style="${heatVars(a)}" title="Season ${sn} average: ${a.toFixed(2)}">${a.toFixed(1)}</span>`;
+    }).join('')}`;
+    const pill = (e, icon, text) => e ? `<button class="d-pill" data-ep="${e.id}"><span class="ms fill" style="font-size:16px">${icon}</span>${text} S${e.s} E${e.e} · ${e.r}</button>` : '';
+    return `<section class="rating-card" style="${showVars(show.key)}">
+      <div class="rating-head">
+        <span class="ep-avatar"><span class="ms">${show.icon}</span></span>
+        <div><div class="rating-name">${esc(show.name)}</div>
+        <div class="rating-sub">${rated.length ? `Average ${mean(rated.map(e => e.r)).toFixed(2)} · ${rated.length} of ${eps.length} episodes rated` : 'No ratings yet'}</div></div>
+      </div>
+      <div class="rating-best">${pill(best, 'arrow_upward', 'Best')}${pill(worst, 'arrow_downward', 'Lowest')}</div>
+      <div class="heat-scroll"><div class="heat" style="grid-template-columns: 26px repeat(${seasons.length}, minmax(34px, 1fr))">${grid}</div></div>
+    </section>`;
+  }).join('');
+}
+$('ratingGrids').addEventListener('click', e => {
+  const b = e.target.closest('[data-ep]');
+  if (b) openDetails(+b.dataset.ep);
+});
+
 /* ---------- Views (bottom navigation) ---------- */
+const VIEWS = { episodes: ['viewEpisodes', 'Arrowverse'], ratings: ['viewRatings', 'Ratings'], characters: ['viewCharacters', 'Characters'] };
 let currentView = 'episodes';
-const scrollPos = { episodes: 0, characters: 0 };
+const scrollPos = { episodes: 0, ratings: 0, characters: 0 };
 function setView(view, push = true) {
   if (view === currentView) { scrollTo({ top: 0, behavior: 'smooth' }); return; }
   scrollPos[currentView] = scrollY;
   currentView = view;
-  const chars = view === 'characters';
-  document.body.classList.toggle('view-characters', chars);
-  $('viewEpisodes').hidden = chars;
-  $('viewCharacters').hidden = !chars;
-  $('bigTitle').textContent = $('smallTitle').textContent = chars ? 'Characters' : 'Arrowverse';
+  for (const [v, [id]] of Object.entries(VIEWS)) $(id).hidden = v !== view;
+  document.body.classList.remove('view-characters', 'view-ratings');
+  if (view !== 'episodes') document.body.classList.add(`view-${view}`);
+  $('bigTitle').textContent = $('smallTitle').textContent = VIEWS[view][1];
   $('heroSub').textContent = 'Every episode in watch order';
   document.querySelectorAll('#navbar [data-view]').forEach(b =>
     b.dataset.view === view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   if (state.query) closeSearch();
   closeMenu();
-  if (chars) renderCharacters();
-  if (push) history.pushState({ view }, '');
+  if (view === 'characters') renderCharacters();
+  if (view === 'ratings') renderRatings();
+  if (push) {
+    // One history entry for "away from Episodes", so Android back always returns there.
+    if (history.state?.view && history.state.view !== 'episodes') history.replaceState({ view }, '');
+    else history.pushState({ view }, '');
+  }
   requestAnimationFrame(() => scrollTo(0, scrollPos[view]));
 }
 $('navbar').addEventListener('click', e => {
   const b = e.target.closest('[data-view]');
   if (!b) return;
-  // Going back to Episodes from Characters pops the history entry, so Android back stays sensible.
-  if (b.dataset.view === 'episodes' && currentView === 'characters' && history.state?.view === 'characters') history.back();
+  if (b.dataset.view === 'episodes' && currentView !== 'episodes' && history.state?.view === currentView) history.back();
   else setView(b.dataset.view);
 });
 

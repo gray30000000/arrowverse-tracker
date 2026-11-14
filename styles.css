@@ -312,7 +312,10 @@ body.view-characters .fab { opacity: 0; transform: scale(.6); pointer-events: no
 .navbar button[aria-current="page"] .ms { font-variation-settings: "FILL" 1, "wght" 500; }
 .navbar button[aria-current="page"] .nav-label { font-weight: 700; }
 @keyframes indIn { from { transform: scaleX(.4); } }
-body.view-characters .chips#chips, body.view-characters #searchBtn { display: none; }
+body.view-characters .chips#chips, body.view-characters #searchBtn, body.view-ratings #searchBtn { display: none; }
+body.view-ratings .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
+body.view-ratings [data-chip="unwatched"], body.view-ratings .chip-sep { display: none; }
+.navbar button { flex-basis: 128px; }
 
 /* ---------- Characters ---------- */
 .searchfield {
@@ -472,3 +475,35 @@ body.view-characters .chips#chips, body.view-characters #searchBtn { display: no
 .cast-row > span:last-child, .ep-mini > span:last-child { overflow: hidden; }
 .ep-mini-t, .ep-mini-m, .cast-name, .cast-actor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-show .ms { color: var(--c); }
+
+/* ---------- Ratings grid (heatmap: seasons across, episodes down) ---------- */
+.heat-legend { display: flex; align-items: center; gap: 8px; margin: 0 24px 16px; font-size: 12px; color: var(--on-surface-variant); flex-wrap: wrap; }
+.heat-legend .scale { display: flex; gap: 2px; }
+.heat-legend .scale i { width: 26px; height: 18px; border-radius: 4px; display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.heat-legend .watched-key { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+.heat-legend .watched-key b { width: 6px; height: 6px; border-radius: 50%; background: var(--on-surface-variant); }
+.rating-card { margin: 0 16px 16px; padding: 16px 16px 12px; border-radius: 28px; background: var(--surface-container-low); }
+.rating-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.rating-head .ep-avatar { width: 40px; height: 40px; border-radius: 14px; flex: none; }
+.rating-head .ep-avatar .ms { font-size: 22px; }
+.rating-name { font-size: 18px; font-weight: 500; line-height: 24px; }
+.rating-sub { font-size: 13px; color: var(--on-surface-variant); }
+.rating-best { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 12px; }
+.rating-best .d-pill { cursor: pointer; }
+.heat-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px 4px; scrollbar-width: thin; }
+.heat { display: grid; gap: 2px; min-width: min-content; }
+.heat .hd, .heat .rl { font-size: 11px; font-weight: 600; color: var(--on-surface-variant); display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.heat .rl { justify-items: end; padding-right: 4px; }
+.heat .hd { height: 22px; }
+.cell {
+  height: 30px; min-width: 34px; border-radius: 4px; position: relative;
+  display: grid; place-items: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  background: var(--bg); color: var(--fg); transition: transform .15s var(--ease), box-shadow .15s;
+}
+.cell:hover { transform: scale(1.08); z-index: 1; box-shadow: 0 0 0 2px var(--surface-container-low), 0 2px 6px rgba(0,0,0,.25); }
+.cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; z-index: 1; }
+.cell.none { background: transparent; color: var(--on-surface-variant); border: 1px dashed var(--outline-variant); font-weight: 400; }
+.cell.watched::after { content: ""; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .75; }
+.cell.avg { height: 26px; font-size: 11px; border-top: 0; }
+.heat .avg-label { font-size: 11px; color: var(--on-surface-variant); display: grid; place-items: center end; padding-right: 4px; }
+.heat .gap { height: 6px; }

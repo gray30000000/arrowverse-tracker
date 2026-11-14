@@ -78,6 +78,15 @@
     </div>
     </div>
 
+    <div id="viewRatings" hidden>
+      <div class="heat-legend" id="heatLegend" aria-hidden="true"></div>
+      <div id="ratingGrids"></div>
+      <div class="empty" id="ratingsEmpty" hidden>
+        <span class="ms xl">star</span>
+        <p>No series selected. Turn some on with the filter chips.</p>
+      </div>
+    </div>
+
     <div id="viewCharacters" hidden>
       <div class="searchfield">
         <span class="ms">search</span>
@@ -98,6 +107,7 @@
 
     <footer class="foot">
       Watch order from <a href="https://arrowverse.info" target="_blank" rel="noopener">arrowverse.info</a>.
+      Ratings courtesy of <a href="https://www.imdb.com" target="_blank" rel="noopener">IMDb</a> (non-commercial datasets).
       Episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> and cast lists from the
       <a href="https://arrow.fandom.com" target="_blank" rel="noopener">Arrowverse Wiki</a> (CC BY-SA).
       Progress is saved on this device.
@@ -106,6 +116,7 @@
 
   <nav class="navbar" id="navbar" aria-label="Sections">
     <button data-view="episodes" aria-current="page"><span class="nav-ind"><span class="ms">video_library</span></span><span class="nav-label">Episodes</span></button>
+    <button data-view="ratings"><span class="nav-ind"><span class="ms">star</span></span><span class="nav-label">Ratings</span></button>
     <button data-view="characters"><span class="nav-ind"><span class="ms">groups</span></span><span class="nav-label">Characters</span></button>
   </nav>
 

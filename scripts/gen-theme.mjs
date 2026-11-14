@@ -50,15 +50,32 @@ const ROLES = {
   'inverse-primary': s => s.inversePrimary,
 };
 
+// Heatmap ramp for the ratings grid: one hue (the theme's), light -> dark for low -> high
+// ratings in light mode, and dark -> light in dark mode. Text on each step is whichever
+// of near-black / near-white has the better WCAG contrast.
+const HEAT_TONES = { light: [95, 89, 81, 72, 63, 47, 38, 29], dark: [22, 28, 36, 44, 57, 66, 75, 85] };
+const lum = hex => {
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
 const themes = {};
 for (const [name, hex] of Object.entries(SEEDS)) {
   const hct = Hct.fromInt(argbFromHex(hex));
   themes[name] = { seed: hex, light: {}, dark: {} };
+  const heatPal = TonalPalette.fromHueAndChroma(hct.hue, Math.max(48, hct.chroma));
   for (const mode of ['light', 'dark']) {
     const scheme = new SchemeTonalSpot(hct, mode === 'dark', 0);
     for (const [role, get] of Object.entries(ROLES)) {
       themes[name][mode][role] = hexFromArgb(get(scheme));
     }
+    const dark = hexFromArgb(heatPal.tone(10)), light = hexFromArgb(heatPal.tone(99));
+    themes[name][mode].heat = HEAT_TONES[mode].map(t => {
+      const bg = hexFromArgb(heatPal.tone(t));
+      const fg = contrast(bg, dark) >= contrast(bg, light) ? dark : light;
+      return [bg, fg, +Math.max(contrast(bg, dark), contrast(bg, light)).toFixed(2)];
+    });
   }
 }
 
