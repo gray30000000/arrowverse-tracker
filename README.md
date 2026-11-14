@@ -15,4 +15,6 @@ Every Arrowverse episode in watch order, with a Material You interface. Swipe an
 ## Data
 `scripts/build-data.mjs` runs in the Pages workflow (on every push and weekly). It takes the order from arrowverse.info's API, matches each row to a TVmaze episode, and writes `data.json` plus `report.json`, which lists every place the two sources disagree. If arrowverse.info is down, the build falls back to TVmaze broadcast-time order. If `data.json` is missing, the app loads from TVmaze directly.
 
+Each character in `characters.json` has an `imageUrl` such as `images/characters/felicity_smoak.jpg`. Drop portraits into `images/characters/` under those names and they show up in the character list; until then the initials show. `report.json` lists the file names still missing under `characters.images.missing`.
+
 Series: Arrow, The Flash, Constantine, Vixen, Supergirl, Legends of Tomorrow, Freedom Fighters: The Ray, Black Lightning, Batwoman, Stargirl, Superman & Lois.

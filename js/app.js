@@ -711,6 +711,23 @@ const initialsOf = name => name
   .replace(/\(.*?\)/g, '').replace(/^(dr|mr|mrs|ms|miss)\.?\s+/i, '').trim()
   .split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2)
   .map(w => w[0].toUpperCase()).join('') || '?';
+// Portrait from imageUrl in characters.json, laid over the initials. Until a file is
+// added to images/characters/, the image fails, removes itself and isn't asked for again
+// this session, so the initials show instead.
+const missingImages = new Set();
+const avatarHtml = (c, name, { show = null, big = false } = {}) => {
+  const url = cast.chars[c].imageUrl;
+  const img = url && !missingImages.has(url)
+    ? `<img class="ch-img" src="${esc(url)}" alt="" loading="lazy" decoding="async">` : '';
+  const badge = show ? `<span class="ms badge">${SHOW[show].icon}</span>` : '';
+  return `<span class="initials${big ? ' big' : ''}">${esc(initialsOf(name))}${img}${badge}</span>`;
+};
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains('ch-img')) return;
+  missingImages.add(img.getAttribute('src'));
+  img.remove();
+}, true); // error events don't bubble, so listen in the capture phase
 const epByN = n => state.episodes[n - 1];
 // Series a character first appeared in (only used for color and badge).
 const homeShow = (c, fallback) => { const n = cast.appear.get(c)?.[0]; return n ? epByN(n).show : fallback; };
@@ -810,7 +827,7 @@ function renderCharacters() {
   list.innerHTML = rows.map(m => {
     const s = SHOW[m.first.show];
     return `<li class="ch" style="${showVars(m.first.show)}"><button class="ch-row" data-char="${m.c}">
-      <span class="initials">${esc(initialsOf(m.name))}<span class="ms badge">${s.icon}</span></span>
+      ${avatarHtml(m.c, m.name, { show: m.first.show })}
       <span class="ch-text">
         <span class="ch-name">${esc(m.name)}</span>
         <span class="ch-sub">${esc(m.actor)}</span>
@@ -864,7 +881,7 @@ function openCharacter(c, fromEp) {
   const s = SHOW[m.first.show];
   const seen = state.episodes.filter(ep => state.watched.has(ep.id) && (cast.eps[ep.id] || []).some(x => x.c === c && x.g <= 1)).reverse();
   openSheet(`<div class="ch-head">
-      <span class="initials big">${esc(initialsOf(m.name))}<span class="ms badge">${s.icon}</span></span>
+      ${avatarHtml(c, m.name, { show: m.first.show, big: true })}
       <h2>${esc(m.name)}</h2>
       <p>${esc(m.actor)}</p>
       <div class="d-meta">

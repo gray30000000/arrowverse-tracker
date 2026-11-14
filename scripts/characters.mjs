@@ -163,6 +163,35 @@ const cleanName = name => {
 };
 const plain = n => cleanName(n).replace(/["“”]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
+// Character portraits: images/characters/<name>.jpg, served next to index.html.
+// The file name comes from the first credited name (plus the version label, if any),
+// never from the wiki page title, which can give away a secret identity.
+export const IMAGE_DIR = 'images/characters';
+export const imageSlug = name => cleanName(name)
+  .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+  .replace(/\s*\([^)]*\)/g, '').replace(/['’"“”.]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'character';
+
+// Gives every character an imageUrl. Two characters with the same name and label get
+// _2, _3… in order of first appearance, so file names stay put between builds.
+export function addImageUrls(list) {
+  const used = new Map();
+  for (const ch of list) {
+    let base = imageSlug(ch.n[0] || '');
+    if (ch.q) base += `_${imageSlug(ch.q)}`;
+    const k = (used.get(base) || 0) + 1;
+    used.set(base, k);
+    ch.imageUrl = `${IMAGE_DIR}/${k > 1 ? `${base}_${k}` : base}.jpg`;
+  }
+  return list;
+}
+
+// Which portraits are in the repo yet, for report.json.
+function imageReport(list) {
+  const missing = list.filter(ch => !existsSync(ch.imageUrl)).map(ch => `${ch.imageUrl}  (${ch.n[0]}${ch.q ? `, ${ch.q}` : ''} · ${ch.a[0]})`);
+  return { present: list.length - missing.length, missing };
+}
+
 // Links can point at redirects ("Barry Allen" -> "Barry Allen (Earth-1)"); resolve them so
 // one character isn't split in two. Redirects into a section of a list page keep the
 // section, so minor characters on "List of …" pages stay separate.
@@ -372,6 +401,8 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
     if (m && isWorld && ch.names.some(n => plain(n.replace(/\s*\([^)]*\)$/, '')) === plain(m[1]))) out.q = m[2];
     return out;
   });
+  addImageUrls(list);
+  const images = imageReport(list);
 
   return {
     data: { built: new Date().toISOString(), source: 'arrow.fandom.com', chars: list, eps },
@@ -383,6 +414,7 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
       castMembersSeen: tally.size,
       redirectsResolved: Object.values(cache.redirects).reduce((n, m) => n + Object.entries(m).filter(([a, b]) => a !== b).length, 0),
       withVersionLabel: list.filter(c => c.q).length,
+      images,
       fetchErrors: errors.slice(0, 50),
       characters: list.length,
     },

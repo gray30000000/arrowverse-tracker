@@ -38,6 +38,7 @@ jobs:
           mkdir _site
           cp -r index.html styles.css manifest.webmanifest sw.js data.json report.json js icons _site/
           [ -f characters.json ] && cp characters.json _site/ || echo 'no characters.json'
+          [ -d images ] && cp -r images _site/ || echo 'no images'
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
