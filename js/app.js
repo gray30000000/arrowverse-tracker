@@ -326,11 +326,13 @@ $('snackAction').addEventListener('click', () => { snackUndo?.(); snackUndo = nu
 
 /* ---------- Bottom sheet ---------- */
 let sheetOpen = false;
+let sheetCloseTimer;
 function openSheet(html, vars = '') {
+  clearTimeout(sheetCloseTimer);
   $('sheetContent').innerHTML = html;
   $('sheet').style.cssText = vars;
-  $('sheet').classList.remove('closing');
-  $('scrim').classList.remove('closing');
+  $('sheet').classList.remove('dragging');
+  $('scrim').style.cssText = '';
   $('sheet').hidden = $('scrim').hidden = false;
   $('sheetContent').scrollTop = 0;
   if (!sheetOpen) history.pushState({ sheet: true }, '');
@@ -339,34 +341,91 @@ function openSheet(html, vars = '') {
 function closeSheet(fromHistory = false) {
   if (!sheetOpen) return;
   sheetOpen = false;
-  $('sheet').classList.add('closing');
-  $('scrim').classList.add('closing');
-  setTimeout(() => { $('sheet').hidden = $('scrim').hidden = true; $('sheet').style.transform = ''; }, 230);
+  const sheet = $('sheet'), scrim = $('scrim');
+  sheet.classList.remove('dragging');
+  // Slide out from wherever the sheet currently is (also mid-drag).
+  sheet.style.transition = 'transform .25s cubic-bezier(.3, 0, .8, .15)';
+  sheet.style.transform = 'translate(-50%, 105%)';
+  scrim.style.transition = 'opacity .25s';
+  scrim.style.opacity = '0';
+  sheetCloseTimer = setTimeout(() => {
+    sheet.hidden = true;
+    if ($('dialog').hidden) scrim.hidden = true;
+    scrim.style.cssText = '';
+  }, 260);
   if (!fromHistory && history.state?.sheet) history.back();
 }
 window.addEventListener('popstate', () => { closeSheet(true); closeMenu(); });
 $('scrim').addEventListener('click', () => closeSheet());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); closeMenu(); closeDialog(); } });
 
-// Drag the handle down to dismiss
+// Drag the sheet down from anywhere inside it. If its content is scrolled,
+// it scrolls back to the top first and then the drag takes over (like Android).
 (() => {
-  let y0 = null, dy = 0;
-  const sheet = $('sheet');
-  $('sheetHandle').addEventListener('pointerdown', e => { y0 = e.clientY; dy = 0; sheet.classList.add('dragging'); $('sheetHandle').setPointerCapture(e.pointerId); });
-  $('sheetHandle').addEventListener('pointermove', e => {
-    if (y0 == null) return;
-    dy = Math.max(0, e.clientY - y0);
-    sheet.style.transform = `translate(-50%, ${dy}px)`;
-  });
-  const end = () => {
-    if (y0 == null) return;
-    y0 = null;
-    sheet.classList.remove('dragging');
-    if (dy > 100) closeSheet();
-    else { sheet.style.transition = 'transform .3s cubic-bezier(.2,0,0,1)'; sheet.style.transform = ''; setTimeout(() => { sheet.style.transition = ''; }, 300); }
+  const sheet = $('sheet'), content = $('sheetContent'), scrim = $('scrim');
+  let g = null;
+  let suppressClick = false;
+
+  const begin = (y, target) => {
+    if (!sheetOpen) return;
+    // Pulls that start on the handle area always drag, even if the content is scrolled.
+    g = { anchor: y, lastY: y, lastT: performance.now(), v: 0, dy: 0, dragging: false, fromHandle: !content.contains(target) };
   };
-  $('sheetHandle').addEventListener('pointerup', end);
-  $('sheetHandle').addEventListener('pointercancel', end);
+  // Returns true when the sheet is being dragged (caller blocks native scrolling).
+  const move = y => {
+    if (!g) return false;
+    const now = performance.now();
+    const dt = Math.max(1, now - g.lastT);
+    g.v = 0.7 * ((y - g.lastY) / dt) + 0.3 * g.v;
+    g.lastY = y; g.lastT = now;
+    if (!g.dragging) {
+      const atTop = g.fromHandle || content.scrollTop <= 0;
+      const d = y - g.anchor;
+      if (!atTop || d < 0) { g.anchor = y; return false; } // let the content scroll
+      if (d < 6) return false;
+      g.dragging = true;
+      g.anchor = y;
+      sheet.classList.add('dragging');
+    }
+    let dy = y - g.anchor;
+    if (dy < 0) dy = Math.max(-24, dy / 4); // a little resistance when pulled up
+    g.dy = dy;
+    sheet.style.transform = `translate(-50%, ${dy}px)`;
+    scrim.style.opacity = String(1 - Math.max(0, dy) / sheet.offsetHeight);
+    return true;
+  };
+  const finish = () => {
+    if (!g) return;
+    const st = g; g = null;
+    if (!st.dragging) return;
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+    sheet.classList.remove('dragging');
+    // A quick flick closes it; a pause before lifting the finger cancels the flick.
+    const v = performance.now() - st.lastT > 100 ? 0 : st.v;
+    const flung = v > 0.35 && st.dy > 24;
+    if (flung || st.dy > sheet.offsetHeight * 0.3) {
+      closeSheet();
+    } else {
+      sheet.style.transition = 'transform .35s cubic-bezier(.34, 1.36, .64, 1)';
+      sheet.style.transform = '';
+      scrim.style.transition = 'opacity .25s';
+      scrim.style.opacity = '';
+      setTimeout(() => { if (sheetOpen) { sheet.style.transition = ''; scrim.style.transition = ''; } }, 360);
+    }
+  };
+
+  // Touch: listeners must be non-passive so a pull-down can stop native scrolling.
+  sheet.addEventListener('touchstart', e => { if (e.touches.length === 1) begin(e.touches[0].clientY, e.target); else g = null; }, { passive: true });
+  sheet.addEventListener('touchmove', e => { if (g && move(e.touches[0].clientY) && e.cancelable) e.preventDefault(); }, { passive: false });
+  sheet.addEventListener('touchend', finish);
+  sheet.addEventListener('touchcancel', finish);
+
+  // Mouse: drag anywhere too.
+  sheet.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button === 0) begin(e.clientY, e.target); });
+  window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && g && move(e.clientY)) e.preventDefault(); });
+  window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') finish(); });
+  sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 
 function openDetails(id) {
@@ -404,18 +463,18 @@ function openDetails(id) {
 }
 
 function openStats() {
-  const rows = SHOWS.map(s => {
+  const selected = SHOWS.filter(s => !state.settings.hidden.includes(s.key));
+  const rows = selected.map(s => {
     const eps = state.episodes.filter(ep => ep.show === s.key);
     const done = eps.filter(ep => state.watched.has(ep.id)).length;
     const pct = eps.length ? (done / eps.length) * 100 : 0;
-    const hidden = state.settings.hidden.includes(s.key);
-    return `<div class="stat-row" style="${showVars(s.key)};${hidden ? 'opacity:.55' : ''}">
+    return `<div class="stat-row" style="${showVars(s.key)}">
       <div class="stat-name"><span class="dot"></span>${esc(s.name)}</div>
-      <div class="stat-num">${done} / ${eps.length}${hidden ? ' · hidden' : ''}</div>
+      <div class="stat-num">${done} / ${eps.length}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
     </div>`;
   }).join('');
-  openSheet(`<div class="stats"><h2>Progress by series</h2>${rows}</div>`);
+  openSheet(`<div class="stats"><h2>Progress by series</h2>${rows || '<p class="stat-empty">No series selected. Turn some on with the filter chips.</p>'}</div>`);
 }
 
 function openTheme() {
@@ -453,7 +512,8 @@ function confirmDialog({ icon, title, text, ok }) {
   $('dialogText').textContent = text;
   $('dialogOk').textContent = ok;
   $('dialog').hidden = false;
-  $('scrim').classList.remove('closing');
+  clearTimeout(sheetCloseTimer);
+  $('scrim').style.cssText = '';
   $('scrim').hidden = false;
   return new Promise(resolve => { dialogOk = resolve; });
 }
