@@ -2,17 +2,17 @@
 // Episode data comes from the TVmaze API (https://www.tvmaze.com/api, CC BY-SA).
 
 export const SHOWS = [
-  { key: 'arrow',          tvmaze: 4,     name: 'Arrow',                        short: 'Arrow' },
-  { key: 'flash',          tvmaze: 13,    name: 'The Flash',                    short: 'Flash' },
-  { key: 'constantine',    tvmaze: 15,    name: 'Constantine',                  short: 'Constantine' },
-  { key: 'vixen',          tvmaze: 2752,  name: 'Vixen',                        short: 'Vixen' },
-  { key: 'supergirl',      tvmaze: 1850,  name: 'Supergirl',                    short: 'Supergirl' },
-  { key: 'legends',        tvmaze: 1851,  name: "DC's Legends of Tomorrow",     short: 'Legends' },
-  { key: 'ray',            tvmaze: 20003, name: 'Freedom Fighters: The Ray',    short: 'The Ray' },
-  { key: 'blacklightning', tvmaze: 20683, name: 'Black Lightning',              short: 'Black Lightning' },
-  { key: 'batwoman',       tvmaze: 37776, name: 'Batwoman',                     short: 'Batwoman' },
-  { key: 'stargirl',       tvmaze: 37809, name: 'Stargirl',                     short: 'Stargirl' },
-  { key: 'supermanlois',   tvmaze: 44751, name: 'Superman & Lois',              short: 'Superman & Lois' },
+  { key: 'arrow',          tvmaze: 4, icon: 'target',     name: 'Arrow',                        short: 'Arrow' },
+  { key: 'flash',          tvmaze: 13, icon: 'bolt',    name: 'The Flash',                    short: 'Flash' },
+  { key: 'constantine',    tvmaze: 15, icon: 'local_fire_department',    name: 'Constantine',                  short: 'Constantine' },
+  { key: 'vixen',          tvmaze: 2752, icon: 'pets',  name: 'Vixen',                        short: 'Vixen' },
+  { key: 'supergirl',      tvmaze: 1850, icon: 'flight',  name: 'Supergirl',                    short: 'Supergirl' },
+  { key: 'legends',        tvmaze: 1851, icon: 'hourglass_top',  name: "DC's Legends of Tomorrow",     short: 'Legends' },
+  { key: 'ray',            tvmaze: 20003, icon: 'flare', name: 'Freedom Fighters: The Ray',    short: 'The Ray' },
+  { key: 'blacklightning', tvmaze: 20683, icon: 'electric_bolt', name: 'Black Lightning',              short: 'Black Lightning' },
+  { key: 'batwoman',       tvmaze: 37776, icon: 'dark_mode', name: 'Batwoman',                     short: 'Batwoman' },
+  { key: 'stargirl',       tvmaze: 37809, icon: 'star', name: 'Stargirl',                     short: 'Stargirl' },
+  { key: 'supermanlois',   tvmaze: 44751, icon: 'family_restroom', name: 'Superman & Lois',              short: 'Superman & Lois' },
 ];
 
 // Crossover events, keyed "show:season:episode" (TVmaze numbering).

@@ -78,10 +78,10 @@ function rowHtml(ep) {
       <span class="bg-unwatch">Unwatch<span class="ms">undo</span></span>
     </div>
     <div class="ep-fg">
-      <div class="ep-avatar"><span><b>S${ep.s}</b>E${ep.e}</span></div>
+      <div class="ep-avatar"><span class="ms">${show.icon}</span></div>
       <div class="ep-text">
         <div class="ep-title">${esc(ep.t)}</div>
-        <div class="ep-meta"><span class="dot"></span>${esc(show.short)} · ${fmtDate(ep.d)}</div>
+        <div class="ep-meta">${esc(show.short)} · S${ep.s} E${ep.e} · ${fmtDate(ep.d)}</div>
         ${ep.x ? `<div class="ep-x"><span class="ms">join</span>${esc(ep.x)}</div>` : ''}
       </div>
       <span class="ep-n">#${ep.n}</span>
@@ -183,7 +183,7 @@ function updateSummary() {
     const s = SHOW[next.show];
     $('upnext').style.cssText = showVars(next.show);
     $('upnextBody').innerHTML = `
-      ${next.img ? `<img class="upnext-img" src="${esc(next.img)}" alt="" loading="lazy">` : `<div class="upnext-img">S${next.s}·E${next.e}</div>`}
+      ${next.img ? `<img class="upnext-img" src="${esc(next.img)}" alt="" loading="lazy">` : `<div class="upnext-img"><span class="ms fill">${s.icon}</span></div>`}
       <div>
         <div class="upnext-title">${esc(next.t)}</div>
         <div class="upnext-meta">${esc(s.short)} · S${next.s} E${next.e} · ${fmtDate(next.d)}</div>
@@ -232,6 +232,7 @@ function setWatched(ids, value, { announce = true, message } = {}) {
     if (changed.length < 4) { li.classList.remove('pop'); void li.offsetWidth; li.classList.add('pop'); }
   }
   updateSummary();
+  if (currentView === 'characters') renderCharacters();
   if (state.settings.hideWatched && value && changed.length < 4) {
     for (const id of changed) state.rows.get(id)?.classList.add('collapsing');
     setTimeout(applyFilters, 320);
@@ -240,8 +241,9 @@ function setWatched(ids, value, { announce = true, message } = {}) {
   }
   if (announce) {
     const ep = state.byId.get(changed[0]);
+    const fresh = value && changed.length === 1 ? newCharactersIn(ep) : 0;
     const text = message || (changed.length === 1
-      ? `“${ep.t}” ${value ? 'watched' : 'unmarked'}`
+      ? `“${ep.t}” ${value ? 'watched' : 'unmarked'}${fresh ? ` · ${fresh} new character${fresh > 1 ? 's' : ''}` : ''}`
       : `${changed.length} episodes ${value ? 'marked watched' : 'unmarked'}`);
     snackbar(text, () => setWatched(changed, !value, { announce: false }));
   }
@@ -335,7 +337,8 @@ function openSheet(html, vars = '') {
   $('scrim').style.cssText = '';
   $('sheet').hidden = $('scrim').hidden = false;
   $('sheetContent').scrollTop = 0;
-  if (!sheetOpen) history.pushState({ sheet: true }, '');
+  $('sheetContent').onclick = null;
+  if (!sheetOpen) history.pushState({ sheet: true, view: currentView }, '');
   sheetOpen = true;
 }
 function closeSheet(fromHistory = false) {
@@ -355,7 +358,12 @@ function closeSheet(fromHistory = false) {
   }, 260);
   if (!fromHistory && history.state?.sheet) history.back();
 }
-window.addEventListener('popstate', () => { closeSheet(true); closeMenu(); });
+window.addEventListener('popstate', () => {
+  closeMenu();
+  if (sheetOpen) { closeSheet(true); return; }
+  const view = history.state?.view || 'episodes';
+  if (view !== currentView) setView(view, false);
+});
 $('scrim').addEventListener('click', () => closeSheet());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); closeMenu(); closeDialog(); } });
 
@@ -366,13 +374,13 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet
   let g = null;
   let suppressClick = false;
 
-  const begin = (y, target) => {
+  const begin = (x, y, target) => {
     if (!sheetOpen) return;
     // Pulls that start on the handle area always drag, even if the content is scrolled.
-    g = { anchor: y, lastY: y, lastT: performance.now(), v: 0, dy: 0, dragging: false, fromHandle: !content.contains(target) };
+    g = { x0: x, anchor: y, lastY: y, lastT: performance.now(), v: 0, dy: 0, dragging: false, fromHandle: !content.contains(target) };
   };
   // Returns true when the sheet is being dragged (caller blocks native scrolling).
-  const move = y => {
+  const move = (x, y) => {
     if (!g) return false;
     const now = performance.now();
     const dt = Math.max(1, now - g.lastT);
@@ -382,7 +390,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet
       const atTop = g.fromHandle || content.scrollTop <= 0;
       const d = y - g.anchor;
       if (!atTop || d < 0) { g.anchor = y; return false; } // let the content scroll
-      if (d < 6) return false;
+      if (Math.abs(x - g.x0) > d) { g.anchor = y; g.x0 = x; return false; } // sideways, not a pull
+      if (d < 14) return false; // needs a deliberate pull before the sheet moves
       g.dragging = true;
       g.anchor = y;
       sheet.classList.add('dragging');
@@ -403,11 +412,11 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet
     sheet.classList.remove('dragging');
     // A quick flick closes it; a pause before lifting the finger cancels the flick.
     const v = performance.now() - st.lastT > 100 ? 0 : st.v;
-    const flung = v > 0.35 && st.dy > 24;
-    if (flung || st.dy > sheet.offsetHeight * 0.3) {
+    const flung = v > 0.9 && st.dy > 56;
+    if (flung || st.dy > Math.max(160, sheet.offsetHeight * 0.4)) {
       closeSheet();
     } else {
-      sheet.style.transition = 'transform .35s cubic-bezier(.34, 1.36, .64, 1)';
+      sheet.style.transition = 'transform .3s cubic-bezier(.2, .9, .3, 1)';
       sheet.style.transform = '';
       scrim.style.transition = 'opacity .25s';
       scrim.style.opacity = '';
@@ -416,14 +425,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet
   };
 
   // Touch: listeners must be non-passive so a pull-down can stop native scrolling.
-  sheet.addEventListener('touchstart', e => { if (e.touches.length === 1) begin(e.touches[0].clientY, e.target); else g = null; }, { passive: true });
-  sheet.addEventListener('touchmove', e => { if (g && move(e.touches[0].clientY) && e.cancelable) e.preventDefault(); }, { passive: false });
+  sheet.addEventListener('touchstart', e => { if (e.touches.length === 1) begin(e.touches[0].clientX, e.touches[0].clientY, e.target); else g = null; }, { passive: true });
+  sheet.addEventListener('touchmove', e => { if (g && move(e.touches[0].clientX, e.touches[0].clientY) && e.cancelable) e.preventDefault(); }, { passive: false });
   sheet.addEventListener('touchend', finish);
   sheet.addEventListener('touchcancel', finish);
 
   // Mouse: drag anywhere too.
-  sheet.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button === 0) begin(e.clientY, e.target); });
-  window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && g && move(e.clientY)) e.preventDefault(); });
+  sheet.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button === 0) begin(e.clientX, e.clientY, e.target); });
+  window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && g && move(e.clientX, e.clientY)) e.preventDefault(); });
   window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') finish(); });
   sheet.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
@@ -435,8 +444,8 @@ function openDetails(id) {
   const watched = state.watched.has(id);
   const before = state.episodes.filter(x => x.n < ep.n && isShown(x) && !state.watched.has(x.id)).length;
   openSheet(`
-    ${ep.img ? `<img class="d-img" src="${esc(ep.img.replace('/medium_landscape/', '/original_untouched/'))}" alt="" onerror="this.src='${esc(ep.img)}'">` : `<div class="d-noimg">S${ep.s} · E${ep.e}</div>`}
-    <div class="d-show"><span class="dot"></span>${esc(s.name)}</div>
+    ${ep.img ? `<img class="d-img" src="${esc(ep.img.replace('/medium_landscape/', '/original_untouched/'))}" alt="" onerror="this.src='${esc(ep.img)}'">` : `<div class="d-noimg"><span class="ms fill" style="font-size:56px">${s.icon}</span></div>`}
+    <div class="d-show"><span class="ms fill sm">${s.icon}</span>${esc(s.name)}</div>
     <h2 class="d-title">${esc(ep.t)}</h2>
     <div class="d-meta">
       <span class="d-pill"><span class="ms">tag</span>S${ep.s} · E${ep.e}</span>
@@ -452,7 +461,17 @@ function openDetails(id) {
         <span class="ms">${watched ? 'undo' : 'check'}</span>${watched ? 'Mark as unwatched' : 'Mark as watched'}
       </button>
       ${before ? `<button class="btn big outlined" data-act="upto"><span class="ms">done_all</span>Mark this and ${before} earlier as watched</button>` : ''}
-    </div>`, showVars(ep.show));
+    </div>
+    ${castHtml(ep)}`, showVars(ep.show));
+  $('sheetContent').onclick = e => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'reveal' || act === 'minor') {
+      $('castBox').outerHTML = castHtml(ep, { reveal: true, all: act === 'minor' });
+      return;
+    }
+    const ch = e.target.closest('[data-char]');
+    if (ch) openCharacter(+ch.dataset.char, ep);
+  };
   $('sheetContent').querySelector('[data-act=toggle]').onclick = () => { closeSheet(); setWatched([id], !watched); };
   const upto = $('sheetContent').querySelector('[data-act=upto]');
   if (upto) upto.onclick = () => {
@@ -469,7 +488,7 @@ function openStats() {
     const done = eps.filter(ep => state.watched.has(ep.id)).length;
     const pct = eps.length ? (done / eps.length) * 100 : 0;
     return `<div class="stat-row" style="${showVars(s.key)}">
-      <div class="stat-name"><span class="dot"></span>${esc(s.name)}</div>
+      <div class="stat-name"><span class="ms fill sm" style="color:var(--c)">${s.icon}</span>${esc(s.name)}</div>
       <div class="stat-num">${done} / ${eps.length}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
     </div>`;
@@ -578,7 +597,7 @@ function renderChips() {
   $('chips').innerHTML = `
     <button class="chip" data-chip="unwatched" aria-pressed="${hideWatched}"><span class="ms">${hideWatched ? 'check' : 'visibility_off'}</span>Unwatched only</button>
     <span class="chip-sep"></span>
-    ${SHOWS.map(s => `<button class="chip show" data-show="${s.key}" style="${showVars(s.key)}" aria-pressed="${!hidden.includes(s.key)}"><span class="dot"></span>${esc(s.short)}</button>`).join('')}`;
+    ${SHOWS.map(s => `<button class="chip show" data-show="${s.key}" style="${showVars(s.key)}" aria-pressed="${!hidden.includes(s.key)}"><span class="ms sicon">${s.icon}</span>${esc(s.short)}</button>`).join('')}`;
 }
 $('chips').addEventListener('click', e => {
   const chip = e.target.closest('.chip');
@@ -659,6 +678,234 @@ new ResizeObserver(() => {
   document.documentElement.style.setProperty('--header-h', `${$('appbar').offsetHeight}px`);
 }).observe($('appbar'));
 
+/* ---------- Characters ---------- */
+// characters.json: chars[i] = { n: [credited names], a: [actors] }; eps[episodeId] = entries.
+// Only what was credited in watched episodes is shown, so nothing gets spoiled.
+const cast = { chars: null, eps: null, appear: null, loaded: false, failed: false };
+const GROUP_LABEL = ['Main cast', 'Guest starring', 'Co-starring', 'Also appearing'];
+const decodeEntry = x => Array.isArray(x)
+  ? { c: x[0] >> 2, g: x[0] & 3, ni: x[1] || 0, ai: x[2] || 0 }
+  : { c: x >> 2, g: x & 3, ni: 0, ai: 0 };
+const charName = (c, ni) => cast.chars[c].n[ni] ?? cast.chars[c].n[0];
+const initialsOf = name => name
+  .replace(/\(.*?\)/g, '').replace(/^(dr|mr|mrs|ms|miss)\.?\s+/i, '').trim()
+  .split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2)
+  .map(w => w[0].toUpperCase()).join('') || '?';
+const epByN = n => state.episodes[n - 1];
+// Series a character first appeared in (only used for color and badge).
+const homeShow = (c, fallback) => { const n = cast.appear.get(c)?.[0]; return n ? epByN(n).show : fallback; };
+const isNewIn = (c, ep) => !(cast.appear.get(c) || []).some(n => n < ep.n && isShown(epByN(n)));
+
+async function loadCharacters() {
+  try {
+    const res = await fetch('characters.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    cast.chars = json.chars;
+    cast.eps = {};
+    for (const [id, list] of Object.entries(json.eps)) cast.eps[id] = list.map(decodeEntry);
+    cast.appear = new Map(); // character -> episode numbers (main/guest credits), in order
+    for (const ep of state.episodes) {
+      for (const e of cast.eps[ep.id] || []) {
+        if (e.g > 1) continue;
+        if (!cast.appear.has(e.c)) cast.appear.set(e.c, []);
+        cast.appear.get(e.c).push(ep.n);
+      }
+    }
+    cast.loaded = true;
+  } catch (err) {
+    console.warn('No character data:', err);
+    cast.failed = true;
+  }
+  if (currentView === 'characters') renderCharacters();
+  const box = document.getElementById('castBox');
+  if (box && sheetOpen) box.outerHTML = castHtml(state.byId.get(+box.dataset.ep));
+}
+
+function metCharacters() {
+  const met = new Map();
+  if (!cast.loaded) return met;
+  for (const ep of state.episodes) {
+    if (!state.watched.has(ep.id)) continue;
+    for (const e of cast.eps[ep.id] || []) {
+      if (e.g > 1) continue;
+      let m = met.get(e.c);
+      if (!m) met.set(e.c, m = { c: e.c, first: ep, last: ep, count: 0, actors: new Set(), ni: e.ni });
+      m.last = ep; m.count++; m.ni = e.ni; m.actors.add(e.ai);
+    }
+  }
+  for (const m of met.values()) {
+    m.name = charName(m.c, m.ni); // as credited most recently
+    m.actor = [...m.actors].map(i => cast.chars[m.c].a[i]).join(' / ');
+  }
+  return met;
+}
+
+function newCharactersIn(ep) {
+  if (!cast.loaded) return 0;
+  return (cast.eps[ep.id] || []).filter(e => e.g <= 1 &&
+    !(cast.appear.get(e.c) || []).some(n => n !== ep.n && state.watched.has(epByN(n).id))).length;
+}
+
+let charSort = 'recent';
+function renderCharacters() {
+  const list = $('charList'), empty = $('charEmpty');
+  list.textContent = '';
+  if (!cast.loaded) {
+    empty.hidden = false;
+    $('charEmptyText').textContent = cast.failed ? 'Character data isn’t available right now.' : 'Loading characters…';
+    $('heroSub').textContent = 'Who you’ve met so far';
+    return;
+  }
+  const met = [...metCharacters().values()];
+  $('heroSub').textContent = met.length ? `${met.length.toLocaleString()} characters met so far` : 'Who you’ve met so far';
+  const q = $('charSearch').value.trim().toLowerCase();
+  let rows = q ? met.filter(m => `${m.name} ${m.actor}`.toLowerCase().includes(q)) : met;
+  const sorters = {
+    recent: (a, b) => b.first.n - a.first.n || b.count - a.count,
+    first: (a, b) => a.first.n - b.first.n || b.count - a.count,
+    most: (a, b) => b.count - a.count || a.first.n - b.first.n,
+    az: (a, b) => a.name.localeCompare(b.name),
+  };
+  rows.sort(sorters[charSort]);
+  empty.hidden = rows.length > 0;
+  if (!rows.length) {
+    $('charEmptyText').textContent = q ? `No characters match “${q}”` : 'Mark episodes as watched and the characters you meet show up here.';
+    return;
+  }
+  list.innerHTML = rows.map(m => {
+    const s = SHOW[m.first.show];
+    return `<li class="ch" style="${showVars(m.first.show)}"><button class="ch-row" data-char="${m.c}">
+      <span class="initials">${esc(initialsOf(m.name))}<span class="ms badge">${s.icon}</span></span>
+      <span class="ch-text">
+        <span class="ch-name">${esc(m.name)}</span>
+        <span class="ch-sub">${esc(m.actor)}</span>
+        <span class="ch-sub">Met in ${esc(s.short)} S${m.first.s} E${m.first.e}</span>
+      </span>
+      <span class="ch-count"><b>${m.count}</b>${m.count === 1 ? 'episode' : 'episodes'}</span>
+    </button></li>`;
+  }).join('');
+}
+$('charList').addEventListener('click', e => {
+  const b = e.target.closest('[data-char]');
+  if (b) openCharacter(+b.dataset.char);
+});
+let charSearchTimer;
+$('charSearch').addEventListener('input', () => { clearTimeout(charSearchTimer); charSearchTimer = setTimeout(renderCharacters, 120); });
+$('charSort').addEventListener('click', e => {
+  const b = e.target.closest('[data-sort]');
+  if (!b) return;
+  charSort = b.dataset.sort;
+  $('charSort').querySelectorAll('[data-sort]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  renderCharacters();
+});
+
+const epMini = ep => {
+  const s = SHOW[ep.show];
+  return `<button class="ep-mini" data-ep="${ep.id}" style="${showVars(ep.show)}">
+    <span class="ep-avatar"><span class="ms">${s.icon}</span></span>
+    <span><span class="ep-mini-t">${esc(ep.t)}</span><span class="ep-mini-m">${esc(s.short)} · S${ep.s} E${ep.e} · ${fmtDate(ep.d)}</span></span>
+  </button>`;
+};
+
+function openCharacter(c, fromEp) {
+  const m = metCharacters().get(c);
+  if (!m) {
+    // Not met yet: show only this episode's credit, nothing about later appearances.
+    const e = fromEp && (cast.eps[fromEp.id] || []).find(x => x.c === c);
+    const name = e ? charName(c, e.ni) : 'Unknown';
+    const show = fromEp ? fromEp.show : homeShow(c, 'arrow');
+    openSheet(`<div class="ch-head">
+        <span class="initials big">${esc(initialsOf(name))}<span class="ms badge">${SHOW[show].icon}</span></span>
+        <h2>${esc(name)}</h2>
+        ${e ? `<p>${esc(cast.chars[c].a[e.ai])}</p>` : ''}
+      </div>
+      <p class="cast-note" style="text-align:center;margin-top:16px">You haven’t met this character yet. Their appearances show up here once you’ve watched them.</p>`, showVars(show));
+    return;
+  }
+  const s = SHOW[m.first.show];
+  const seen = state.episodes.filter(ep => state.watched.has(ep.id) && (cast.eps[ep.id] || []).some(x => x.c === c && x.g <= 1)).reverse();
+  openSheet(`<div class="ch-head">
+      <span class="initials big">${esc(initialsOf(m.name))}<span class="ms badge">${s.icon}</span></span>
+      <h2>${esc(m.name)}</h2>
+      <p>${esc(m.actor)}</p>
+      <div class="d-meta">
+        <span class="d-pill"><span class="ms">visibility</span>${m.count} ${m.count === 1 ? 'episode' : 'episodes'} watched</span>
+        <span class="d-pill"><span class="ms fill" style="color:var(--c)">${s.icon}</span>Met in ${esc(s.short)} S${m.first.s} E${m.first.e}</span>
+      </div>
+    </div>
+    <div class="cast"><h3>Appearances you’ve watched <small>newest first</small></h3>${seen.map(epMini).join('')}</div>`, showVars(m.first.show));
+  $('sheetContent').onclick = e => {
+    const b = e.target.closest('[data-ep]');
+    if (b) openDetails(+b.dataset.ep);
+  };
+}
+
+function castRow(e, ep) {
+  const name = charName(e.c, e.ni);
+  const show = homeShow(e.c, ep.show);
+  const isNew = e.g <= 1 && isNewIn(e.c, ep);
+  return `<button class="cast-row" data-char="${e.c}" style="${showVars(show)}">
+    <span class="initials">${esc(initialsOf(name))}</span>
+    <span><span class="cast-name">${esc(name)}${isNew ? '<span class="new-badge">NEW</span>' : ''}</span><span class="cast-actor">${esc(cast.chars[e.c].a[e.ai])}</span></span>
+  </button>`;
+}
+
+function castHtml(ep, { reveal = false, all = false } = {}) {
+  if (!cast.loaded) return cast.failed ? '' : `<div class="cast" id="castBox" data-ep="${ep.id}"><h3>Cast</h3><p class="cast-note">Loading cast…</p></div>`;
+  const list = cast.eps[ep.id];
+  if (!list?.length) return '';
+  const named = list.filter(e => e.g <= 1);
+  const fresh = named.filter(e => isNewIn(e.c, ep)).length;
+  const head = `<h3>Cast <small>${named.length} characters${fresh ? ` · ${fresh} new` : ''}</small></h3>`;
+  if (!state.watched.has(ep.id) && !reveal) {
+    return `<div class="cast" id="castBox" data-ep="${ep.id}">${head}
+      <button class="btn tonal cast-reveal" data-act="reveal"><span class="ms">visibility</span>Show cast</button>
+      <p class="cast-note">Hidden until you’ve watched it, in case it spoils a surprise appearance.</p></div>`;
+  }
+  let html = '';
+  for (const g of [0, 1]) {
+    const rows = list.filter(e => e.g === g);
+    if (rows.length) html += `<div class="cast-group">${GROUP_LABEL[g]}</div>${rows.map(e => castRow(e, ep)).join('')}`;
+  }
+  const minor = list.filter(e => e.g > 1);
+  if (minor.length) {
+    html += all
+      ? `<div class="cast-group">Co-starring</div>${minor.map(e => castRow(e, ep)).join('')}`
+      : `<button class="btn text cast-reveal" data-act="minor">Show ${minor.length} co-stars</button>`;
+  }
+  return `<div class="cast" id="castBox" data-ep="${ep.id}" data-reveal="1">${head}${html}</div>`;
+}
+
+/* ---------- Views (bottom navigation) ---------- */
+let currentView = 'episodes';
+const scrollPos = { episodes: 0, characters: 0 };
+function setView(view, push = true) {
+  if (view === currentView) { scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  scrollPos[currentView] = scrollY;
+  currentView = view;
+  const chars = view === 'characters';
+  document.body.classList.toggle('view-characters', chars);
+  $('viewEpisodes').hidden = chars;
+  $('viewCharacters').hidden = !chars;
+  $('bigTitle').textContent = $('smallTitle').textContent = chars ? 'Characters' : 'Arrowverse';
+  $('heroSub').textContent = 'Every episode in watch order';
+  document.querySelectorAll('#navbar [data-view]').forEach(b =>
+    b.dataset.view === view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+  if (state.query) closeSearch();
+  closeMenu();
+  if (chars) renderCharacters();
+  if (push) history.pushState({ view }, '');
+  requestAnimationFrame(() => scrollTo(0, scrollPos[view]));
+}
+$('navbar').addEventListener('click', e => {
+  const b = e.target.closest('[data-view]');
+  if (!b) return;
+  // Going back to Episodes from Characters pops the history entry, so Android back stays sensible.
+  if (b.dataset.view === 'episodes' && currentView === 'characters' && history.state?.view === 'characters') history.back();
+  else setView(b.dataset.view);
+});
+
 /* ---------- Boot ---------- */
 async function boot() {
   applyTheme();
@@ -673,6 +920,7 @@ async function boot() {
     applyFilters();
     updateSummary();
     if (state.watched.size > 0) $('hint').hidden = true;
+    loadCharacters();
   } catch (err) {
     console.error(err);
     $('loadingText').textContent = 'Couldn’t load episodes. Check your connection and reload.';

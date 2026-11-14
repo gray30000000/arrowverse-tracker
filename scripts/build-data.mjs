@@ -7,6 +7,7 @@
 // Writes data.json for the app and report.json with what differed.
 import { writeFileSync } from 'node:fs';
 import { SHOWS, buildEpisodes } from '../js/data.js';
+import { buildCharacters } from './characters.mjs';
 
 const AV_SERIES = {
   'Arrow': 'arrow', 'The Flash': 'flash', 'Constantine': 'constantine', 'Vixen': 'vixen',
@@ -57,6 +58,7 @@ try {
 
 const report = { built: new Date().toISOString(), orderSource: av ? 'arrowverse.info' : 'tvmaze', tvmazeCount: tvmaze.length };
 let episodes = tvmaze;
+const wikiTitles = new Map(); // episode id -> arrowverse.info title (taken from the wiki's episode lists)
 
 if (av) {
   const used = new Set();
@@ -83,6 +85,7 @@ if (av) {
     if (match) {
       used.add(match.id);
       ordered.push(match);
+      wikiTitles.set(match.id, row.episode_name.replace(/^"|"$/g, '').trim());
     } else {
       unmatched.push(row);
     }
@@ -126,7 +129,17 @@ report.perShow = Object.fromEntries(SHOWS.map(s => [s.short, episodes.filter(e =
 if (episodes.length < 600) throw new Error(`Only ${episodes.length} episodes, something is off`);
 
 writeFileSync('data.json', JSON.stringify({ built: report.built, orderSource: report.orderSource, episodes }));
-writeFileSync('report.json', JSON.stringify(report, null, 2));
+
+// Characters per episode (optional: the site still works without them).
+try {
+  const t0 = Date.now();
+  const { data, report: charReport } = await buildCharacters(episodes, wikiTitles);
+  if (data.chars.length > 50) writeFileSync('characters.json', JSON.stringify(data));
+  report.characters = { ...charReport, seconds: Math.round((Date.now() - t0) / 1000) };
+} catch (err) {
+  console.warn('Characters step failed:', err);
+  report.characters = { error: String(err) };
+}
 report.withImages = episodes.filter(e => e.img).length;
 report.crossoverEpisodes = episodes.filter(e => e.x).map(e => `${e.x}: ${e.show} S${e.s}E${e.e}`);
 writeFileSync('report.json', JSON.stringify(report, null, 2));

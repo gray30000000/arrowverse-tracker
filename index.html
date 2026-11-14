@@ -37,8 +37,10 @@
   <main id="main">
     <section class="hero">
       <h1 class="display" id="bigTitle">Arrowverse</h1>
-      <p class="hero-sub">Every episode in watch order</p>
+      <p class="hero-sub" id="heroSub">Every episode in watch order</p>
     </section>
+
+    <div id="viewEpisodes">
 
     <section class="card progress-card" id="progressCard" role="button" tabindex="0" aria-label="Show progress by series">
       <div class="progress-head">
@@ -74,12 +76,38 @@
       <span class="ms xl">movie_filter</span>
       <p id="emptyText">No episodes match</p>
     </div>
+    </div>
+
+    <div id="viewCharacters" hidden>
+      <div class="searchfield">
+        <span class="ms">search</span>
+        <input id="charSearch" type="search" placeholder="Search characters or actors" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div class="chips char-sort" id="charSort" role="toolbar" aria-label="Sort characters">
+        <button class="chip" data-sort="recent" aria-pressed="true">Newest met</button>
+        <button class="chip" data-sort="first" aria-pressed="false">First met</button>
+        <button class="chip" data-sort="most" aria-pressed="false">Most seen</button>
+        <button class="chip" data-sort="az" aria-pressed="false">A–Z</button>
+      </div>
+      <ol class="list char-list" id="charList" aria-label="Characters"></ol>
+      <div class="empty" id="charEmpty" hidden>
+        <span class="ms xl">groups</span>
+        <p id="charEmptyText"></p>
+      </div>
+    </div>
 
     <footer class="foot">
-      Episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA).
+      Watch order from <a href="https://arrowverse.info" target="_blank" rel="noopener">arrowverse.info</a>.
+      Episode data from <a href="https://www.tvmaze.com" target="_blank" rel="noopener">TVmaze</a> and cast lists from the
+      <a href="https://arrow.fandom.com" target="_blank" rel="noopener">Arrowverse Wiki</a> (CC BY-SA).
       Progress is saved on this device.
     </footer>
   </main>
+
+  <nav class="navbar" id="navbar" aria-label="Sections">
+    <button data-view="episodes" aria-current="page"><span class="nav-ind"><span class="ms">video_library</span></span><span class="nav-label">Episodes</span></button>
+    <button data-view="characters"><span class="nav-ind"><span class="ms">groups</span></span><span class="nav-label">Characters</span></button>
+  </nav>
 
   <button class="fab" id="fab" aria-label="Jump to next episode">
     <span class="ms">skip_next</span><span class="fab-label">Up next</span>

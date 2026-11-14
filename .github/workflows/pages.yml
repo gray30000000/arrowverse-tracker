@@ -24,12 +24,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build episode data (order from arrowverse.info, details from TVmaze)
+      - name: Restore wiki cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: fandom-${{ hashFiles('scripts/characters.mjs') }}-${{ github.run_id }}
+          restore-keys: fandom-${{ hashFiles('scripts/characters.mjs') }}-
+      - name: Build data (order from arrowverse.info, details from TVmaze, cast from the Arrowverse wiki)
         run: node scripts/build-data.mjs
+        timeout-minutes: 20
       - name: Assemble site
         run: |
           mkdir _site
           cp -r index.html styles.css manifest.webmanifest sw.js data.json report.json js icons _site/
+          [ -f characters.json ] && cp characters.json _site/ || echo 'no characters.json'
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -2,3 +2,5 @@ data.json
 report.json
 node_modules/
 _site/
+.cache/
+characters.json
