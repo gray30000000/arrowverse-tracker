@@ -800,6 +800,10 @@ $('charSort').addEventListener('click', e => {
   renderCharacters();
 });
 
+// Searches the credited name, so the link itself doesn't give away who someone really is.
+const wikiSearch = (name, show) =>
+  `https://${show === 'stargirl' ? 'stargirl' : 'arrow'}.fandom.com/wiki/Special:Search?query=${encodeURIComponent(name.replace(/\s*\(.*\)$/, ''))}`;
+
 const epMini = ep => {
   const s = SHOW[ep.show];
   return `<button class="ep-mini" data-ep="${ep.id}" style="${showVars(ep.show)}">
@@ -833,6 +837,10 @@ function openCharacter(c, fromEp) {
         <span class="d-pill"><span class="ms">visibility</span>${m.count} ${m.count === 1 ? 'episode' : 'episodes'} watched</span>
         <span class="d-pill"><span class="ms fill" style="color:var(--c)">${s.icon}</span>Met in ${esc(s.short)} S${m.first.s} E${m.first.e}</span>
       </div>
+    </div>
+    <div class="d-actions">
+      <a class="btn big outlined" href="${wikiSearch(m.name, m.first.show)}" target="_blank" rel="noopener"><span class="ms">open_in_new</span>Look up on the wiki</a>
+      <p class="cast-note" style="text-align:center">Wiki pages cover the whole series, so they can contain spoilers.</p>
     </div>
     <div class="cast"><h3>Appearances you’ve watched <small>newest first</small></h3>${seen.map(epMini).join('')}</div>`, showVars(m.first.show));
   $('sheetContent').onclick = e => {

@@ -6,7 +6,8 @@
 // (restored by the workflow), so later builds only fetch what's new.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-const API = 'https://arrow.fandom.com/api.php';
+const ARROW_API = 'https://arrow.fandom.com/api.php';
+const STARGIRL_API = 'https://stargirl.fandom.com/api.php';
 const UA = { 'User-Agent': 'arrowverse-tracker build (github.com/gray30000000/arrowverse-tracker)' };
 const CACHE_FILE = '.cache/fandom.json';
 const CACHE_VERSION = 1;
@@ -19,6 +20,22 @@ export const WIKI_SERIES = {
 };
 export const GROUPS = { m: 0, g: 1, c: 2, u: 3 }; // main, guest, co-starring, uncredited
 
+// Each series' episode list on its wiki. The links in those tables are the exact
+// episode page titles (arrowverse.info reads the same pages for its order).
+const LIST_PAGES = {
+  arrow: 'List of Arrow episodes', flash: 'List of The Flash (The CW) episodes',
+  constantine: 'List of Constantine episodes', vixen: 'List of Vixen episodes',
+  supergirl: 'List of Supergirl episodes', legends: "List of DC's Legends of Tomorrow episodes",
+  ray: 'List of Freedom Fighters: The Ray episodes', blacklightning: 'List of Black Lightning episodes',
+  batwoman: 'List of Batwoman episodes', supermanlois: 'List of Superman & Lois episodes',
+};
+// Stargirl's episodes are covered by its own wiki.
+const apiFor = show => (show === 'stargirl' ? STARGIRL_API : ARROW_API);
+
+// Who counts as a character worth listing: named (has their own wiki page) and
+// either in the main cast or seen in at least this many episodes.
+const MIN_APPEARANCES = 3;
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const decode = s => s
   .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n))
@@ -27,14 +44,18 @@ const decode = s => s
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const normCat = c => decode(String(c)).replace(/_/g, ' ').trim().toLowerCase();
 
-async function parsePage(title) {
+async function parsePage(title, api = ARROW_API) {
   const params = new URLSearchParams({
     action: 'parse', page: title, prop: 'text|categories', redirects: '1',
     format: 'json', formatversion: '2', disablelimitreport: '1', disableeditsection: '1',
   });
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(`${API}?${params}`, { headers: UA });
-    if (res.status === 429 || res.status >= 500) { await sleep(1500 * (attempt + 1)); continue; }
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch(`${api}?${params}`, { headers: UA });
+    if (res.status === 429 || res.status >= 500) {
+      const retryAfter = +res.headers.get('retry-after') || 0;
+      await sleep(Math.max(retryAfter * 1000, 2000 * 2 ** attempt)); // 2s, 4s, 8s… so the wiki can breathe
+      continue;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     if (json.error) return json.error.code === 'missingtitle' ? null : Promise.reject(new Error(json.error.code));
@@ -65,7 +86,7 @@ export function parseCast(html) {
       continue;
     }
     const entry = parseEntry(m[2]);
-    if (entry) cast.push({ id: entry.id, name: entry.name, actor: entry.actor, g: entry.cameo ? 'u' : group });
+    if (entry) cast.push({ id: entry.id, name: entry.name, actor: entry.actor, g: entry.cameo ? 'u' : group, l: entry.linked ? 1 : 0 });
   }
   return cast;
 }
@@ -93,41 +114,99 @@ function parseEntry(li) {
   // because it can give away a secret identity.
   const id = href ? decodeURIComponent(href).replace(/_/g, ' ') : name;
   const cameo = /archive|photo|stock|footage|picture|portrait/i.test(note);
-  return { id, name, actor, cameo };
+  return { id, name, actor, cameo, linked: !!href };
 }
 
-async function findEpisodePage(ep, titles) {
+const normTitle = t => decode(String(t || '')).toLowerCase()
+  .replace(/&/g, ' and ').replace(/\bpart\b/g, ' ')
+  .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/g, w => ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 })[w])
+  .replace(/[^a-z0-9]+/g, '');
+
+// Links to episode pages from a "List of … episodes" page, in table order.
+async function listEpisodeLinks(show) {
+  if (!LIST_PAGES[show]) return [];
+  const page = await parsePage(LIST_PAGES[show]);
+  if (!page) return [];
+  const links = [];
+  // Episode titles in these tables are quoted links: "<a href="/wiki/Pilot_(Arrow)" …>Pilot</a>"
+  const re = /(?:"|&quot;|“)\s*<a\s[^>]*href="(?:https?:\/\/arrow\.fandom\.com)?\/wiki\/([^"#?]+)"[^>]*>([\s\S]*?)<\/a>\s*(?:"|&quot;|”)/g;
+  let m;
+  while ((m = re.exec(page.html))) {
+    links.push({ page: decodeURIComponent(m[1]).replace(/_/g, ' '), text: decode(m[2].replace(/<[^>]+>/g, '')) });
+  }
+  return links;
+}
+
+// Maps each episode id to its exact wiki page title where the episode list allows.
+async function exactTitles(episodes) {
+  const map = new Map();
+  const stats = {};
+  for (const show of Object.keys(LIST_PAGES)) {
+    const eps = episodes.filter(e => e.show === show).sort((a, b) => a.s - b.s || a.e - b.e);
+    if (!eps.length) continue;
+    let links = [];
+    try { links = await listEpisodeLinks(show); } catch (err) { stats[show] = `error: ${err.message}`; continue; }
+    await sleep(400);
+    if (links.length === eps.length) {
+      eps.forEach((ep, i) => map.set(ep.id, links[i].page)); // same count: zip in order
+      stats[show] = `${links.length} by order`;
+      continue;
+    }
+    const used = new Set();
+    let n = 0;
+    for (const ep of eps) {
+      const l = links.find((x, i) => !used.has(i) && normTitle(x.text) === normTitle(ep.wt || ep.t));
+      if (l) { used.add(links.indexOf(l)); map.set(ep.id, l.page); n++; }
+    }
+    stats[show] = `${n}/${eps.length} by title (list had ${links.length} links)`;
+  }
+  return { map, stats };
+}
+
+async function findEpisodePage(ep, exact, titles) {
+  const api = apiFor(ep.show);
+  const tried = [];
+  if (exact) {
+    tried.push(exact);
+    const page = await parsePage(exact, api);
+    const cast = page && parseCast(page.html);
+    if (cast) return { page: page.title, cast };
+  }
   const series = WIKI_SERIES[ep.show].toLowerCase();
   // Categories like "Arrow episodes" or "Arrow season 1 episodes".
   const isEpisodeCatOf = (cat, name) => cat.startsWith(name + ' ') && cat.includes('episode');
   const others = Object.values(WIKI_SERIES).map(s => s.toLowerCase()).filter(s => s !== series && !s.startsWith(series + ' '));
-  const tried = [];
   let fallback = null;
   for (const t of titles) {
     for (const title of [t, `${t} (${WIKI_SERIES[ep.show]})`]) {
       if (tried.includes(title)) continue;
       tried.push(title);
-      const page = await parsePage(title);
+      await sleep(200);
+      const page = await parsePage(title, api);
       if (!page) continue;
       const cast = parseCast(page.html);
       if (!cast) continue; // e.g. a crossover event page
-      if (page.categories.some(c => isEpisodeCatOf(c, series))) return { page: page.title, cast };
+      if (api === STARGIRL_API || page.categories.some(c => isEpisodeCatOf(c, series))) return { page: page.title, cast };
       const wrong = page.categories.some(c => others.some(o => isEpisodeCatOf(c, o)));
       if (!wrong) fallback ||= { page: page.title, cast };
     }
   }
-  return fallback || { miss: true, tried };
+  return fallback || { miss: true, tried, at: Date.now() };
 }
 
 // episodes: final ordered list; wikiTitles: Map(episode id -> arrowverse.info title)
-export async function buildCharacters(episodes, wikiTitles, { concurrency = 4 } = {}) {
+export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } = {}) {
   let cache = { version: CACHE_VERSION, pages: {} };
   try {
     const c = JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
     if (c.version === CACHE_VERSION) cache = c;
   } catch { /* no cache yet */ }
 
-  const todo = episodes.filter(ep => !cache.pages[ep.id] || cache.pages[ep.id].miss);
+  // Misses are retried after a few days, in case the wiki gained the page.
+  const stale = e => !e || (e.miss && Date.now() - (e.at || 0) > 3 * 864e5);
+  const todo = episodes.filter(ep => stale(cache.pages[ep.id]));
+  for (const ep of episodes) ep.wt = wikiTitles.get(ep.id);
+  const { map: exact, stats: listStats } = todo.length ? await exactTitles(episodes) : { map: new Map(), stats: 'skipped (all cached)' };
   let fetched = 0, errors = [];
   const queue = [...todo];
   await Promise.all(Array.from({ length: concurrency }, async () => {
@@ -135,16 +214,36 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 4 } 
       const ep = queue.shift();
       const titles = [...new Set([wikiTitles.get(ep.id), ep.t].filter(Boolean))];
       try {
-        cache.pages[ep.id] = await findEpisodePage(ep, titles);
+        cache.pages[ep.id] = await findEpisodePage(ep, exact.get(ep.id), titles);
         fetched++;
       } catch (err) {
         errors.push(`${ep.show} S${ep.s}E${ep.e} "${ep.t}": ${err.message}`);
       }
-      await sleep(150);
+      await sleep(350);
     }
   }));
   mkdirSync('.cache', { recursive: true });
   writeFileSync(CACHE_FILE, JSON.stringify(cache));
+
+  // Count appearances first, to keep only characters worth listing.
+  const ns = ep => (ep.show === 'stargirl' ? 'sg:' : ''); // the two wikis' pages are separate
+  const tally = new Map();
+  for (const ep of episodes) {
+    const entry = cache.pages[ep.id];
+    if (!entry || entry.miss) continue;
+    const seen = new Set();
+    for (const c of entry.cast) {
+      const id = ns(ep) + c.id;
+      if (seen.has(id) || c.g === 'c' || c.g === 'u') continue;
+      seen.add(id);
+      const t = tally.get(id) || { main: 0, all: 0, linked: false };
+      if (c.g === 'm') t.main++;
+      t.all++;
+      t.linked ||= !!c.l;
+      tally.set(id, t);
+    }
+  }
+  const relevant = id => { const t = tally.get(id); return t && t.linked && (t.main > 0 || t.all >= MIN_APPEARANCES); };
 
   // Merge into a character table. The wiki link target identifies a character, so
   // "Oliver Queen" in Arrow and in a Flash crossover is the same person. Names and
@@ -159,10 +258,11 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 4 } 
     const seen = new Set();
     eps[ep.id] = [];
     for (const c of entry.cast) {
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      if (!chars.has(c.id)) chars.set(c.id, { idx: chars.size, names: [], actors: [] });
-      const ch = chars.get(c.id);
+      const id = ns(ep) + c.id;
+      if (seen.has(id) || c.g === 'c' || c.g === 'u' || !relevant(id)) continue;
+      seen.add(id);
+      if (!chars.has(id)) chars.set(id, { idx: chars.size, names: [], actors: [] });
+      const ch = chars.get(id);
       let ni = ch.names.indexOf(c.name); if (ni < 0) ni = ch.names.push(c.name) - 1;
       let ai = ch.actors.indexOf(c.actor); if (ai < 0) ai = ch.actors.push(c.actor) - 1;
       const code = ch.idx * 4 + GROUPS[c.g];
@@ -178,6 +278,8 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 4 } 
       characterPagesFound: episodes.length - missing.length,
       characterPagesMissing: missing,
       fetchedThisBuild: fetched,
+      exactTitlesFromLists: listStats,
+      castMembersSeen: tally.size,
       fetchErrors: errors.slice(0, 50),
       characters: list.length,
     },
