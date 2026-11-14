@@ -1,6 +1,6 @@
 // Offline support: app shell cached, data.json network-first, fonts and images cache-first
 // (episode stills from TVmaze, character portraits from the wiki's CDN).
-const VERSION = 'v10';
+const VERSION = 'v11';
 const SHELL = ['./', 'index.html', 'styles.css', 'js/app.js', 'js/data.js', 'js/theme-data.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
@@ -15,7 +15,9 @@ self.addEventListener('activate', e => {
 async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
   try {
-    const res = await fetch(req);
+    // no-cache: check with the server every time (a cheap 304 when nothing changed), so a new
+    // deploy shows on the next reload instead of after GitHub Pages' 10-minute browser cache.
+    const res = await fetch(req, { cache: 'no-cache' });
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch {
