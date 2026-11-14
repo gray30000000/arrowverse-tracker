@@ -120,7 +120,7 @@ function parseEntry(li) {
       segments[segments.length - 1].push(t);
       continue;
     }
-    const parts = inLink ? [t] : t.split(/\s+and\s+|,\s+|\s+&\s+/);
+    const parts = inLink ? [t] : t.split(/\s*,\s*(?:and\s+)?|\s+and\s+|\s+(?:&|&amp;)\s+/);
     parts.forEach((part, k) => { if (k > 0) segments.push([]); segments[segments.length - 1].push(part); });
   }
 
@@ -137,7 +137,7 @@ function parseEntry(li) {
     const text = decode(main.filter(t => !t.startsWith('<')).join('')).replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
     const segText = decode(seg.filter(t => !t.startsWith('<')).join(''));
     const note = /\(([^)]*)\)/.exec(segText)?.[1] || '';
-    let name = text.replace(/\s*\([^)]*\)/g, '').trim();
+    let name = text.replace(/\s*\([^)]*\)/g, '').split(/\s*\/\s*/)[0].replace(/^and\s+/i, '').trim();
     if (!name || name.length > 80 || /^(himself|herself|themselves|uncredited)$/i.test(name)) continue;
     if (/earth|e-\d/i.test(note)) name = `${name} (${note.trim()})`;
     // The last link before the "/" is the character's page ("Detective [[Joe West]]").

@@ -741,12 +741,18 @@ function metCharacters() {
     for (const e of cast.eps[ep.id] || []) {
       if (e.g > 1) continue;
       let m = met.get(e.c);
-      if (!m) met.set(e.c, m = { c: e.c, first: ep, last: ep, count: 0, actors: new Set(), ni: e.ni });
-      m.last = ep; m.count++; m.ni = e.ni; m.actors.add(e.ai);
+      if (!m) met.set(e.c, m = { c: e.c, first: ep, last: ep, count: 0, actors: new Set(), names: new Map() });
+      m.last = ep; m.count++; m.actors.add(e.ai);
+      m.names.set(e.ni, (m.names.get(e.ni) || 0) + 1);
+      m.ni = e.ni;
     }
   }
   for (const m of met.values()) {
-    m.name = cleanName(charName(m.c, m.ni)); // as credited most recently
+    // The name they're credited with most often in watched episodes (latest wins a tie),
+    // so a one-off credit like "NPC Dreamer" doesn't take over.
+    let best = m.ni;
+    for (const [ni, n] of m.names) if (n > (m.names.get(best) || 0)) best = ni;
+    m.name = cleanName(charName(m.c, best));
     m.actor = [...m.actors].map(i => cast.chars[m.c].a[i]).join(' / ');
   }
   return met;
