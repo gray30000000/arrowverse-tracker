@@ -725,7 +725,16 @@ const avatarHtml = (c, name, { show = null, big = false } = {}) => {
 document.addEventListener('error', e => {
   const img = e.target;
   if (!(img instanceof HTMLImageElement) || !img.classList.contains('ch-img')) return;
-  missingImages.add(img.getAttribute('src'));
+  const src = img.getAttribute('src');
+  // Square crops come from the wiki CDN's "smart" mode; if one fails, try the plain image once.
+  const plainSrc = src.replace(/\/smart\/width\/\d+\/height\/\d+/, '/scale-to-width-down/320');
+  if (plainSrc !== src && !missingImages.has(plainSrc)) {
+    missingImages.add(src);
+    cast.chars.forEach(ch => { if (ch.imageUrl === src) ch.imageUrl = plainSrc; });
+    img.src = plainSrc;
+    return;
+  }
+  missingImages.add(src);
   img.remove();
 }, true); // error events don't bubble, so listen in the capture phase
 const epByN = n => state.episodes[n - 1];

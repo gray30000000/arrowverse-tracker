@@ -168,15 +168,15 @@ const plain = n => cleanName(n).replace(/["“”]/g, '').replace(/\s+/g, ' ').t
 // page title is the name they're first credited with, so a credit that links to someone
 // else's page (a secret identity) gets no picture, and its URL can't name them either.
 // Wiki portraits often show a later look, so they can still give something away.
-const IMAGE_WIDTH = 300;
+const IMAGE_SIZE = 320; // square, from the CDN's "smart" crop, which centers on the subject
 const IMAGE_MAX_AGE = 30 * 864e5; // look portraits up again after this long
 const IMAGE_BUDGET = 5 * 60e3; // per build, for the slower infobox lookups; the rest wait for the next build
 const noParens = s => String(s || '').replace(/\s*\([^)]*\)/g, '');
 
-// Only the wiki CDN is accepted, resized to IMAGE_WIDTH.
+// Only the wiki CDN is accepted, as an IMAGE_SIZE square.
 export function portraitUrl(url) {
   const m = /^(?:https?:)?(\/\/static\.wikia\.nocookie\.net\/[^?#"]*?\/revision\/latest)(?:\/[^?#"]*)?(\?[^#"]*)?$/.exec(decode(url || ''));
-  return m ? `https:${m[1]}/scale-to-width-down/${IMAGE_WIDTH}${m[2] || ''}` : null;
+  return m ? `https:${m[1]}/smart/width/${IMAGE_SIZE}/height/${IMAGE_SIZE}${m[2] || ''}` : null;
 }
 
 async function apiGet(api, params) {
@@ -196,7 +196,7 @@ async function pageImages(titles, api) {
     const batch = titles.slice(i, i + 50);
     const json = await apiGet(api, {
       action: 'query', titles: batch.join('|'), redirects: '1',
-      prop: 'pageimages', piprop: 'thumbnail', pithumbsize: String(IMAGE_WIDTH), pilicense: 'any', pilimit: '50',
+      prop: 'pageimages', piprop: 'thumbnail', pithumbsize: String(IMAGE_SIZE), pilicense: 'any', pilimit: '50',
     });
     const norm = Object.fromEntries((json.query?.normalized || []).map(n => [n.from, n.to]));
     const redir = Object.fromEntries((json.query?.redirects || []).map(r => [r.from, r.to]));
@@ -247,7 +247,7 @@ export async function addPortraits(chars, list, cache, errors) {
       await sleep(350);
     }
   }
-  for (const e of eligible) list[e.i].imageUrl = cache.images[e.wiki][e.title]?.u || null;
+  for (const e of eligible) list[e.i].imageUrl = portraitUrl(cache.images[e.wiki][e.title]?.u); // re-sized, so cached URLs follow changes
   return {
     withPortrait: list.filter(c => c.imageUrl).length,
     lookedUp: eligible.length,
