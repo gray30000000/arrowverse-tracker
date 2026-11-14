@@ -687,6 +687,17 @@ const decodeEntry = x => Array.isArray(x)
   ? { c: x[0] >> 2, g: x[0] & 3, ni: x[1] || 0, ai: x[2] || 0 }
   : { c: x >> 2, g: x & 3, ni: 0, ai: 0 };
 const charName = (c, ni) => cast.chars[c].n[ni] ?? cast.chars[c].n[0];
+// Credits often carry a job title that changes ("Detective/Captain/Mayor Quentin Lance");
+// the character list shows the name without it.
+const TITLE_RE = /^(?:(?:assistant|deputy|vice|acting|former|interim|special|co-)\s*)*(?:dr|doctor|mr|mrs|ms|miss|professor|prof|detective|det|officer|captain|capt|lieutenant|lt|sergeant|sgt|agent|major|general|colonel|commander|admiral|mayor|senator|councilman|councilwoman|governor|president|director|chief|sheriff|district attorney|attorney general|judge|commissioner|warden|coach|principal|nurse|private|corporal)\.?\s+/i;
+const cleanName = name => {
+  let x = name;
+  for (;;) {
+    const y = x.replace(TITLE_RE, '');
+    if (y === x || !y.trim()) return x;
+    x = y;
+  }
+};
 const initialsOf = name => name
   .replace(/\(.*?\)/g, '').replace(/^(dr|mr|mrs|ms|miss)\.?\s+/i, '').trim()
   .split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 2)
@@ -735,7 +746,7 @@ function metCharacters() {
     }
   }
   for (const m of met.values()) {
-    m.name = charName(m.c, m.ni); // as credited most recently
+    m.name = cleanName(charName(m.c, m.ni)); // as credited most recently
     m.actor = [...m.actors].map(i => cast.chars[m.c].a[i]).join(' / ');
   }
   return met;
@@ -817,7 +828,7 @@ function openCharacter(c, fromEp) {
   if (!m) {
     // Not met yet: show only this episode's credit, nothing about later appearances.
     const e = fromEp && (cast.eps[fromEp.id] || []).find(x => x.c === c);
-    const name = e ? charName(c, e.ni) : 'Unknown';
+    const name = e ? cleanName(charName(c, e.ni)) : 'Unknown';
     const show = fromEp ? fromEp.show : homeShow(c, 'arrow');
     openSheet(`<div class="ch-head">
         <span class="initials big">${esc(initialsOf(name))}<span class="ms badge">${SHOW[show].icon}</span></span>
@@ -850,7 +861,7 @@ function openCharacter(c, fromEp) {
 }
 
 function castRow(e, ep) {
-  const name = charName(e.c, e.ni);
+  const name = charName(e.c, e.ni); // as credited in this episode, title and all
   const show = homeShow(e.c, ep.show);
   const isNew = e.g <= 1 && isNewIn(e.c, ep);
   return `<button class="cast-row" data-char="${e.c}" style="${showVars(show)}">

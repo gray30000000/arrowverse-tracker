@@ -85,36 +85,74 @@ export function parseCast(html) {
       else if (/main|starring|cast/.test(h)) group = 'm';
       continue;
     }
-    const entry = parseEntry(m[2]);
-    if (entry) cast.push({ id: entry.id, name: entry.name, actor: entry.actor, g: entry.cameo ? 'u' : group, l: entry.linked ? 1 : 0 });
+    for (const entry of parseEntry(m[2])) {
+      cast.push({ id: entry.id, name: entry.name, actor: entry.actor, g: entry.cameo ? 'u' : group, l: entry.linked ? 1 : 0 });
+    }
   }
   return cast;
 }
 
+// One credit line ("Actor as Character", sometimes "as A and B") -> one entry per character.
 function parseEntry(li) {
-  let text = '', asAt = -1, href = null;
-  for (const tok of li.split(/(<[^>]+>)/)) {
-    if (tok.startsWith('<')) {
-      const a = /^<a\s[^>]*href="(?:https?:\/\/arrow\.fandom\.com)?\/wiki\/([^"#?]+)/.exec(tok);
-      if (a && asAt >= 0 && !href) href = a[1];
+  const toks = li.split(/(<[^>]+>)/);
+  let actor = '', i = 0, rest = null;
+  for (; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.startsWith('<')) continue;
+    const text = decode(t);
+    const at = text.search(/\sas\s/);
+    if (at < 0) { actor += text; continue; }
+    actor += text.slice(0, at);
+    rest = [text.slice(at).replace(/^\s+as\s+/, ''), ...toks.slice(i + 1)];
+    break;
+  }
+  if (!rest) return [];
+  actor = actor.replace(/\[\d+\]/g, '').trim();
+  if (!actor) return [];
+
+  // Split into one segment per character at " and " / ", " / " & " outside links.
+  const segments = [[]];
+  let inLink = false;
+  for (const t of rest) {
+    if (t.startsWith('<')) {
+      if (/^<a\s/i.test(t)) inLink = true;
+      else if (/^<\/a>/i.test(t)) inLink = false;
+      segments[segments.length - 1].push(t);
       continue;
     }
-    text += decode(tok);
-    if (asAt < 0) { const i = text.search(/\sas\s/); if (i >= 0) asAt = i; }
+    const parts = inLink ? [t] : t.split(/\s+and\s+|,\s+|\s+&\s+/);
+    parts.forEach((part, k) => { if (k > 0) segments.push([]); segments[segments.length - 1].push(part); });
   }
-  if (asAt < 0) return null;
-  const actor = text.slice(0, asAt).replace(/\[\d+\]/g, '').trim();
-  let role = text.slice(asAt).replace(/^\s+as\s+/, '').replace(/\[\d+\]/g, '').trim();
-  const note = /\(([^)]*)\)\s*$/.exec(role)?.[1] || '';
-  role = role.replace(/\s*\([^)]*\)\s*$/, '').trim();
-  let name = role.split(/\s*\/\s*/)[0].trim();
-  if (!name || !actor || name.length > 80) return null;
-  if (/earth|e-\d/i.test(note)) name = `${name} (${note.trim()})`;
-  // The link target groups appearances of the same character. It is never shown,
-  // because it can give away a secret identity.
-  const id = href ? decodeURIComponent(href).replace(/_/g, ' ') : name;
-  const cameo = /archive|photo|stock|footage|picture|portrait/i.test(note);
-  return { id, name, actor, cameo, linked: !!href };
+
+  const out = [];
+  for (const seg of segments) {
+    // Before a top-level "/" is the character; after it come aliases ("Oliver Queen/Green Arrow").
+    const main = [];
+    let depth = 0;
+    for (const t of seg) {
+      if (t.startsWith('<')) { if (/^<a\s/i.test(t)) depth++; else if (/^<\/a>/i.test(t)) depth--; main.push(t); continue; }
+      if (depth === 0 && t.includes('/')) { main.push(t.split('/')[0]); break; }
+      main.push(t);
+    }
+    const text = decode(main.filter(t => !t.startsWith('<')).join('')).replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+    const segText = decode(seg.filter(t => !t.startsWith('<')).join(''));
+    const note = /\(([^)]*)\)/.exec(segText)?.[1] || '';
+    let name = text.replace(/\s*\([^)]*\)/g, '').trim();
+    if (!name || name.length > 80 || /^(himself|herself|themselves|uncredited)$/i.test(name)) continue;
+    if (/earth|e-\d/i.test(note)) name = `${name} (${note.trim()})`;
+    // The last link before the "/" is the character's page ("Detective [[Joe West]]").
+    let href = null;
+    for (const t of main) {
+      const a = /^<a\s[^>]*href="(?:https?:\/\/[a-z]+\.fandom\.com)?\/wiki\/([^"#?]+)/i.exec(t);
+      if (a) href = a[1];
+    }
+    // The link target groups appearances of the same character. It is never shown,
+    // because it can give away a secret identity.
+    const id = href ? decodeURIComponent(href).replace(/_/g, ' ') : name;
+    const cameo = /archive|photo|stock|footage|picture|portrait/i.test(note);
+    out.push({ id, name, actor, cameo, linked: !!href });
+  }
+  return out;
 }
 
 const normTitle = t => decode(String(t || '')).toLowerCase()
