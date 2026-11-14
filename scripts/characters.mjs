@@ -367,7 +367,9 @@ export async function buildCharacters(episodes, wikiTitles, { concurrency = 2 } 
   const list = [...chars.values()].map(ch => {
     const out = { n: ch.names, a: ch.actors };
     const m = /^(.*?)\s*\(([^)]+)\)$/.exec(ch.id.split('#')[0]);
-    if (m && ch.names.some(n => plain(n.replace(/\s*\([^)]*\)$/, '')) === plain(m[1]))) out.q = m[2];
+    // Only world labels: others like "(robot)" could spoil a twist.
+    const isWorld = /^(earth[-\s]|e-\d)|^(mirrorverse|inverse world)$/i.test(m?.[2] || '');
+    if (m && isWorld && ch.names.some(n => plain(n.replace(/\s*\([^)]*\)$/, '')) === plain(m[1]))) out.q = m[2];
     return out;
   });
 
