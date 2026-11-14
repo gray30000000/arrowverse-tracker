@@ -880,7 +880,7 @@ function openCharacter(c, fromEp) {
     const name = e ? cleanName(charName(c, e.ni)) : 'Unknown';
     const show = fromEp ? fromEp.show : homeShow(c, 'arrow');
     openSheet(`<div class="ch-head">
-        <span class="initials big">${esc(initialsOf(name))}<span class="ms badge">${SHOW[show].icon}</span></span>
+        ${e ? avatarHtml(c, name, { show, big: true }) : `<span class="initials big">${esc(initialsOf(name))}<span class="ms badge">${SHOW[show].icon}</span></span>`}
         <h2>${esc(name)}</h2>
         ${e ? `<p>${esc(cast.chars[c].a[e.ai])}</p>` : ''}
       </div>
@@ -914,7 +914,7 @@ function castRow(e, ep) {
   const show = homeShow(e.c, ep.show);
   const isNew = e.g <= 1 && isNewIn(e.c, ep);
   return `<button class="cast-row" data-char="${e.c}" style="${showVars(show)}">
-    <span class="initials">${esc(initialsOf(name))}</span>
+    ${avatarHtml(e.c, name)}
     <span><span class="cast-name">${esc(name)}${isNew ? '<span class="new-badge">NEW</span>' : ''}</span><span class="cast-actor">${esc(cast.chars[e.c].a[e.ai])}</span></span>
   </button>`;
 }

@@ -379,7 +379,7 @@ body.view-ratings [data-chip="unwatched"], body.view-ratings .chip-sep { display
 .cast-row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 8px 4px; border-radius: 16px; text-align: left; position: relative; overflow: hidden; }
 .cast-row::after { content: ""; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity .15s; }
 .cast-row:active::after { opacity: .08; }
-.cast-row .initials { width: 40px; height: 40px; font-size: 14px; }
+.cast-row .initials { width: 48px; height: 48px; font-size: 16px; }
 .cast-name { font-size: 15px; font-weight: 500; }
 .cast-actor { font-size: 13px; color: var(--on-surface-variant); }
 .cast-reveal { margin-top: 8px; width: 100%; }
