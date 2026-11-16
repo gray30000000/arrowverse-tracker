@@ -6,7 +6,7 @@
 // rows are dropped, and TVmaze episodes it lacks are slotted in by air date.
 // Writes data.json for the app and report.json with what differed.
 import { writeFileSync } from 'node:fs';
-import { SHOWS, buildEpisodes } from '../js/data.js';
+import { SHOWS, buildEpisodes, applyOrderFixes } from '../js/data.js';
 import { buildCharacters } from './characters.mjs';
 import { imdbRatings } from './imdb.mjs';
 
@@ -62,6 +62,13 @@ try {
   av = null;
 }
 
+// Our own corrections on top of the source order (ORDER_FIXES in js/data.js).
+function fixOrder(list) {
+  const { episodes: fixed, log } = applyOrderFixes(list);
+  report.orderFixes = log;
+  return fixed;
+}
+
 const report = { built: new Date().toISOString(), orderSource: av ? 'arrowverse.info' : 'tvmaze', tvmazeCount: tvmaze.length };
 let episodes = tvmaze;
 const wikiTitles = new Map(); // episode id -> arrowverse.info title (taken from the wiki's episode lists)
@@ -103,7 +110,7 @@ if (av) {
     const at = ordered.findIndex(o => o.ts > ep.ts);
     ordered.splice(at === -1 ? ordered.length : at, 0, ep);
   }
-  episodes = ordered;
+  episodes = fixOrder(ordered);
 
   // Places where arrowverse.info's order differs from plain TVmaze air-time order.
   const swaps = [];
@@ -130,6 +137,7 @@ if (av) {
   });
 }
 
+if (!av) episodes = fixOrder(episodes);
 report.finalCount = episodes.length;
 report.perShow = Object.fromEntries(SHOWS.map(s => [s.short, episodes.filter(e => e.show === s.key).length]));
 if (episodes.length < 600) throw new Error(`Only ${episodes.length} episodes, something is off`);

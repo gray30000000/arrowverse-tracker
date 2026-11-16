@@ -69,6 +69,36 @@ export function buildEpisodes(byShow) {
   return all;
 }
 
+// Corrections to the watch order, applied on top of arrowverse.info's order (or air-time
+// order when that's unavailable). Each one moves an episode to right after another,
+// taking along any later episodes of its show that would otherwise land before it.
+// Keys are "show:season:episode" in TVmaze numbering, like CROSSOVERS.
+export const ORDER_FIXES = [
+  // "World's Finest" takes place while Barry is gone in "Versus Zoom", which aired four
+  // weeks later. Supergirl S1E19 and S1E20 aired in between, so they move with it.
+  { move: 'supergirl:1:18', after: 'flash:2:18' },
+];
+
+export function applyOrderFixes(episodes, fixes = ORDER_FIXES) {
+  const key = ep => `${ep.show}:${ep.s}:${ep.e}`;
+  const log = [];
+  let list = episodes;
+  for (const fix of fixes) {
+    const from = list.findIndex(ep => key(ep) === fix.move);
+    const to = list.findIndex(ep => key(ep) === fix.after);
+    const what = `${fix.move} after ${fix.after}`;
+    if (from < 0 || to < 0) { log.push(`${what}: episode not found`); continue; }
+    if (list[from].show === list[to].show) { log.push(`${what}: same show, skipped`); continue; }
+    if (from > to) { log.push(`${what}: already in place`); continue; }
+    const block = list.slice(from, to + 1).filter(ep => ep.show === list[from].show);
+    const rest = list.filter(ep => !block.includes(ep));
+    rest.splice(rest.indexOf(list[to]) + 1, 0, ...block);
+    list = rest;
+    log.push(`${what}: moved${block.length > 1 ? ` with ${block.length - 1} later episode(s) of its show` : ''}`);
+  }
+  return { episodes: list, log };
+}
+
 // Fetches everything straight from TVmaze (the API allows cross-origin requests).
 export async function fetchFromTvmaze(fetchFn = fetch) {
   const byShow = {};
@@ -77,5 +107,5 @@ export async function fetchFromTvmaze(fetchFn = fetch) {
     if (!res.ok) throw new Error(`TVmaze ${show.name}: HTTP ${res.status}`);
     byShow[show.key] = await res.json();
   }));
-  return buildEpisodes(byShow);
+  return applyOrderFixes(buildEpisodes(byShow)).episodes;
 }
